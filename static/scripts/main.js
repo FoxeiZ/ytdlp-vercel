@@ -1,3 +1,5 @@
+let currentUrl = window.location.href;
+
 function humanFileSize(bytes, si = false, dp = 1) {
   const thresh = si ? 1000 : 1024;
 
@@ -87,7 +89,7 @@ async function submit(url) {
     return
   }
   animateDownloadText("...")
-  const response = await fetch("/api/ytdl/check", {
+  const response = await fetch(`${currentUrl}/check`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -117,7 +119,7 @@ async function submit(url) {
         };
 
         for (const format of data.requestedFormats) {
-          const fileData = format.isPart ? await downloadParts(format) : await window.WP_fetchFile(`/api/ytdl/download?video_id=${format.videoId}`);
+          const fileData = format.isPart ? await downloadParts(format) : await window.WP_fetchFile(`${currentUrl}/download?video_id=${format.videoId}`);
           params[`${format.type}Data`] = fileData;
           params[`${format.type}Ext`] = format.ext;
           params[`${format.type}Title`] = format.formatId;
@@ -239,7 +241,7 @@ async function downloadParts(data) {
 
 function download(data) {
   const a = document.createElement("a");
-  a.href = `/api/ytdl/download?video_id=${data.videoId}`;
+  a.href = `${currentUrl}/download?video_id=${data.videoId}`;
   a.download = data.title + "." + data.ext;
   a.click();
 }

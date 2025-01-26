@@ -17,7 +17,7 @@ RANGE_CHUNK_SIZE = 1024 * 1024 * 3
 CHUNK_SIZE = 512 * 1024
 
 BASEDIR = os.path.dirname(os.path.abspath(__file__))
-PREFIX = "/api/ytdl"
+PREFIX = "/api/ytdl" if __name__ != "__main__" else "/"
 
 app = Flask(
     __name__,
@@ -357,7 +357,7 @@ def range_download(
 
     r = requests.get(
         url,
-        headers={"Range": f"bytes={range_start}-{range_start+MAX_RESPONE_SIZE}"},
+        headers={"Range": f"bytes={range_start}-{range_start + MAX_RESPONE_SIZE}"},
         stream=True,
     )
     if not r.ok:
@@ -443,4 +443,5 @@ def download(
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8000, debug=True)
+    PREFIX = ""
+    app.run(host="0.0.0.0", port=8080, debug=True)

@@ -1,6 +1,6 @@
 import os
 from typing import Iterable, MutableSet
-from flask import Flask, render_template
+from flask import Flask, redirect
 
 
 PREFIX = "/"
@@ -63,7 +63,7 @@ class ClassList(MutableSet):
 
 @app.route(PREFIX)
 def index():
-    return render_template("index.html")
+    return redirect("/api/ytdl", code=302)
 
 
 if __name__ == "__main__":
