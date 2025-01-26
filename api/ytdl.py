@@ -1,3 +1,5 @@
+# pyright: reportIncompatibleMethodOverride=false
+
 import os
 from typing import Any, Iterable, MutableSet
 from base64 import urlsafe_b64encode, urlsafe_b64decode
@@ -56,6 +58,8 @@ class ClassList(MutableSet):
             classes = arg
         elif arg is not None:
             raise TypeError("expected a string or string iterable, got %r" % type(arg))
+        else:
+            classes = []
 
         self.classes = set(filter(None, classes))
         if args:

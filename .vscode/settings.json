@@ -1,5 +1,5 @@
 {
-  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.typeCheckingMode": "standard",
   "javascript.validate.enable": true,
   // Add emmet tag autocomplete for jinja and django templates
   "emmet.includeLanguages": {
