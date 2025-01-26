@@ -128,7 +128,7 @@ def str_to_bool(value: str | bool | None) -> bool:
 
 @app.route(PREFIX)
 def index():
-    return render_template("index.html")
+    return render_template("index.html.j2")
 
 
 # @app.route(PREFIX + "/login", methods=["GET", "POST"])
