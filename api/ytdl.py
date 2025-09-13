@@ -1,34 +1,46 @@
+import collections
 import json
 import logging
 import os
+import re
 import uuid
 from io import StringIO
 from pathlib import Path
 from typing import Any, Iterable, MutableSet, cast
 
 import requests
+import yt_dlp
 from dotenv import find_dotenv, load_dotenv
 from flask import (
     Flask,
     Response,
     jsonify,
+    redirect,
     render_template,
     request,
     stream_with_context,
+    url_for,
 )
 from upstash_redis import Redis
 from upstash_redis.errors import UpstashError
 from yt_dlp import YoutubeDL
-from yt_dlp.utils import DownloadError
+from yt_dlp.utils import DownloadError, ISO639Utils, variadic
 
 MAX_RESPONSE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
 STREAM_CHUNK_SIZE = 512 * 1024
 MAX_DOWNLOAD_FILESIZE = "200M"
-PREFIX = "/api/ytdl"
+API_PREFIX = "/api/ytdl"
 RESPONSE_CACHE_TTL_SECONDS = 7200
 URL_CACHE_TTL_SECONDS = 1800
 CHANGELOG_CACHE_TTL_SECONDS = 3600
+
+
+def str_to_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() in ("yes", "true", "t", "y", "1")
+
 
 load_dotenv()
 load_dotenv(find_dotenv(".env.local"))
@@ -137,12 +149,12 @@ class ClassList(MutableSet):
     def __len__(self):
         return len(self.classes)
 
-    def add(self, *classes):  # type: ignore
+    def add(self, *classes):  # type: ignore[override]
         for class_ in classes:
             self.classes.add(class_)
         return ""
 
-    def discard(self, *classes):  # type: ignore
+    def discard(self, *classes):  # type: ignore[override]
         for class_ in classes:
             self.classes.discard(class_)
         return ""
@@ -152,12 +164,6 @@ class ClassList(MutableSet):
 
     def __html__(self):
         return 'class="%s"' % self if self else ""
-
-
-def str_to_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    return str(value).lower() in ("yes", "true", "t", "y", "1")
 
 
 def create_ytdl_extractor(
@@ -245,6 +251,71 @@ def get_changelog_data():
         return []
 
 
+def get_metadata_opts(info, compat_opts=[]):
+    meta_prefix = "meta"
+    metadata = collections.defaultdict(dict)
+
+    def add(meta_list, info_list=None):
+        value = next(
+            (
+                info[key]
+                for key in [f"{meta_prefix}_", *variadic(info_list or meta_list)]
+                if info.get(key) is not None
+            ),
+            None,
+        )
+        if value not in ("", None):
+            value = ", ".join(map(str, variadic(value)))
+            value = value.replace("\0", "")
+            metadata["common"].update(dict.fromkeys(variadic(meta_list), value))
+
+    add("title", ("track", "title"))
+    add("date", "upload_date")
+    add(("description", "synopsis"), "description")
+    add(("purl", "comment"), "webpage_url")
+    add("track", "track_number")
+    add(
+        "artist",
+        ("artist", "artists", "creator", "creators", "uploader", "uploader_id"),
+    )
+    add("composer", ("composer", "composers"))
+    add("genre", ("genre", "genres"))
+    add("album")
+    add("album_artist", ("album_artist", "album_artists"))
+    add("disc", "disc_number")
+    add("show", "series")
+    add("season_number")
+    add("episode_id", ("episode", "episode_id"))
+    add("episode_sort", "episode_number")
+    if "embed-metadata" in compat_opts:
+        add("comment", "description")
+        metadata["common"].pop("synopsis", None)
+
+    meta_regex = rf"{re.escape(meta_prefix)}(?P<i>\d+)?_(?P<key>.+)"
+    for key, value in info.items():
+        mobj = re.fullmatch(meta_regex, key)
+        if value is not None and mobj:
+            metadata[mobj.group("i") or "common"][mobj.group("key")] = value.replace(
+                "\0", ""
+            )
+
+    yield ("-write_id3v1", "1")
+
+    for name, value in metadata["common"].items():
+        yield ("-metadata", f"{name}={value}")
+
+    stream_idx = 0
+    for fmt in info.get("requested_formats") or [info]:
+        stream_count = 2 if "none" not in (fmt.get("vcodec"), fmt.get("acodec")) else 1
+        lang = ISO639Utils.short2long(fmt.get("language") or "") or fmt.get("language")
+        for i in range(stream_idx, stream_idx + stream_count):
+            if lang:
+                metadata[str(i)].setdefault("language", lang)
+            for name, value in metadata[str(i)].items():
+                yield (f"-metadata:s:{i}", f"{name}={value}")
+        stream_idx += stream_count
+
+
 @app.before_request
 def log_request_info():
     app.logger.info(f"Request: {request.method} {request.path}")
@@ -252,13 +323,13 @@ def log_request_info():
         app.logger.info(f"Request JSON payload: {request.get_json()}")
 
 
-@app.route(PREFIX + "/")
+@app.route(API_PREFIX + "/")
 def index():
     changelog_data = get_changelog_data()
     return render_template("index.jinja2", changelog=changelog_data)
 
 
-@app.route(PREFIX + "/check", methods=["POST"])
+@app.route(API_PREFIX + "/check", methods=["POST"])
 def check():
     data = cast(dict | None, request.get_json(silent=True))
     if not data:
@@ -291,7 +362,76 @@ def check():
         return create_error_response(str(e), 400, exc=e)
 
     extractor = create_ytdl_extractor(
-        extra_opts={"noplaylist": True, "format": format_selector}
+        extra_opts={
+            "noplaylist": True,
+            "format": format_selector,
+            "postprocessors": [
+                {
+                    "actions": [
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            "",
+                            "(?P<meta_synopsis>)",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            "",
+                            "(?P<meta_date>)",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.replacer,
+                            "meta_artist",
+                            " - Topic$",
+                            "",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            "artist",
+                            "(?P<meta_album_artist>.*)",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.replacer,
+                            "meta_album_artist",
+                            "[,/&].+",
+                            "",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            "%(track_number,playlist_index|01)s",
+                            "%(track_number)s",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            "%(album,playlist_title|Unknown Album)s",
+                            "%(album)s",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.replacer,
+                            "album",
+                            "^Album - ",
+                            "",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            "%(genre|Unknown Genre)s",
+                            "%(genre)s",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            "description",
+                            "(?P<meta_date>(?<=Released on: )\\d{4})",
+                        ),
+                        (
+                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            "",
+                            "(?P<description>)",
+                        ),
+                    ],
+                    "key": "MetadataParser",
+                    "when": "pre_process",
+                },
+            ],
+        }
     )
     try:
         info = extractor.extract_info(query, download=False, process=True)
@@ -302,9 +442,11 @@ def check():
     except DownloadError as e:
         return create_error_response(f"Extraction failed: {e}", 500, exc=e)
 
+    metadata_opts = list(get_metadata_opts(info))
     ret_data = {
         "title": info.get("title", info.get("id", "")),
         "ext": info.get("ext", "bin"),
+        "metadata": list(metadata_opts),
     }
 
     if "requested_formats" in info:
@@ -362,7 +504,7 @@ def check():
     return jsonify(ret_data)
 
 
-@app.route(PREFIX + "/download")
+@app.route(API_PREFIX + "/download")
 def download():
     uid = request.args.get("id")
     if not uid:
@@ -435,4 +577,9 @@ def _range_download_handler(url: str, range_header: str):
 
 
 if __name__ == "__main__":
+
+    @app.route("/")
+    def index_redirect():
+        return redirect(url_for("index"))
+
     app.run(host="0.0.0.0", port=8000, debug=True)

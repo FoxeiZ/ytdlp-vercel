@@ -375,7 +375,13 @@ const YtdlApp = {
       await ffmpeg.writeFile(inputFilename, new Uint8Array(fileBuffer));
 
       await this.updateDownloadText(`converting to ${data.ext}...`);
-      const execParams = ["-i", inputFilename, outputFilename];
+      const metadataParams = data.metadata ? data.metadata.flat() : [];
+      const execParams = [
+        "-i",
+        inputFilename,
+        ...metadataParams,
+        outputFilename,
+      ];
       Logger.info(
         "Executing FFmpeg command:",
         `ffmpeg ${execParams.join(" ")}`
@@ -439,11 +445,13 @@ const YtdlApp = {
       await this.updateDownloadText("merging...");
       const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
       filesToDelete.push(outputFilename);
+      const metadataParams = data.metadata ? data.metadata.flat() : [];
       const execParams = [
         "-i",
         remuxParams.videoName,
         "-i",
         remuxParams.audioName,
+        ...metadataParams,
         "-c:v",
         "copy",
         "-c:a",
