@@ -1,22 +1,26 @@
 const Logger = {
   verbose: true,
-  _log(level, ...args) {
-    if (["log", "info"].includes(level) && !this.verbose) return;
+  get log() {
+    if (!this.verbose) return () => {};
     const timestamp = new Date().toLocaleTimeString();
     const prefix = `[${timestamp}] [YTDL-APP]`;
-    console[level](prefix, ...args);
+    return console.log.bind(console, prefix);
   },
-  log(...args) {
-    this._log("log", ...args);
+  get info() {
+    if (!this.verbose) return () => {};
+    const timestamp = new Date().toLocaleTimeString();
+    const prefix = `[${timestamp}] [YTDL-APP]`;
+    return console.info.bind(console, prefix);
   },
-  info(...args) {
-    this._log("info", ...args);
+  get warn() {
+    const timestamp = new Date().toLocaleTimeString();
+    const prefix = `[${timestamp}] [YTDL-APP]`;
+    return console.warn.bind(console, prefix);
   },
-  warn(...args) {
-    this._log("warn", ...args);
-  },
-  error(...args) {
-    this._log("error", ...args);
+  get error() {
+    const timestamp = new Date().toLocaleTimeString();
+    const prefix = `[${timestamp}] [YTDL-APP]`;
+    return console.error.bind(console, prefix);
   },
 };
 
@@ -99,6 +103,7 @@ const YtdlApp = {
   state: {
     isDownloading: false,
     useFfmpeg: false,
+    downloadType: "video",
     ytdlFormatVideo: "",
     ytdlFormatAudio: "",
     ytdlFormatCustom: "",
@@ -107,6 +112,9 @@ const YtdlApp = {
   init() {
     Logger.verbose = this.config.verbose;
     Logger.info("Application initializing...");
+
+    this.loadState();
+
     Object.assign(this.ui, {
       urlInput: document.getElementById("url-input"),
       downloadButton: document.getElementById("download-button"),
@@ -124,8 +132,7 @@ const YtdlApp = {
       ),
     });
 
-    this.state.ytdlFormatVideo = this.ui.ytdlFormatVideo.value;
-    this.state.ytdlFormatAudio = this.ui.ytdlFormatAudio.value;
+    this._applyStateToUI();
 
     this.ui.downloadButton.addEventListener("click", () => this.handleSubmit());
     this.ui.urlInput.addEventListener("input", () => this.checkInput());
@@ -156,6 +163,7 @@ const YtdlApp = {
     this.ui.useFfmpeg.addEventListener("change", (e) => {
       this.state.useFfmpeg = e.target.checked;
       Logger.info(`State updated: useFfmpeg is now ${this.state.useFfmpeg}`);
+      this.saveState();
     });
 
     const setupFormatListener = (selectElement, stateKey) => {
@@ -168,6 +176,7 @@ const YtdlApp = {
         Logger.log(
           `State updated: ${stateKey} is now "${this.state[stateKey]}"`
         );
+        this.saveState();
       });
     };
     setupFormatListener(this.ui.ytdlFormatVideo, "ytdlFormatVideo");
@@ -175,6 +184,7 @@ const YtdlApp = {
 
     this.ui.ytdlFormatCustom.addEventListener("input", (e) => {
       this.state.ytdlFormatCustom = e.target.value;
+      this.saveState();
     });
 
     document.querySelectorAll(".tabs-container").forEach((tabsContainer) => {
@@ -192,6 +202,63 @@ const YtdlApp = {
     });
 
     Logger.info("Initialization complete.");
+  },
+
+  saveState() {
+    const settingsToSave = {
+      useFfmpeg: this.state.useFfmpeg,
+      downloadType: this.state.downloadType,
+      ytdlFormatVideo: this.state.ytdlFormatVideo,
+      ytdlFormatAudio: this.state.ytdlFormatAudio,
+      ytdlFormatCustom: this.state.ytdlFormatCustom,
+    };
+    localStorage.setItem("ytdlAppSettings", JSON.stringify(settingsToSave));
+    Logger.log("Settings saved to localStorage.", settingsToSave);
+  },
+
+  loadState() {
+    const savedSettings = localStorage.getItem("ytdlAppSettings");
+    if (savedSettings) {
+      try {
+        const parsedSettings = JSON.parse(savedSettings);
+
+        const defaultState = {
+          ytdlFormatVideo: this.ui.ytdlFormatVideo?.value || "",
+          ytdlFormatAudio: this.ui.ytdlFormatAudio?.value || "",
+        };
+
+        Object.assign(this.state, defaultState, parsedSettings);
+        Logger.info("Settings loaded from localStorage.", this.state);
+      } catch (error) {
+        Logger.error("Failed to parse settings from localStorage.", error);
+      }
+    } else {
+      this.state.ytdlFormatVideo =
+        document.getElementById("ytdl-fsl-video")?.value || "";
+      this.state.ytdlFormatAudio =
+        document.getElementById("ytdl-fsl-audio")?.value || "";
+    }
+  },
+
+  _applyStateToUI() {
+    this.ui.useFfmpeg.checked = this.state.useFfmpeg;
+    this.ui.ytdlFormatVideo.value = this.state.ytdlFormatVideo;
+    this.ui.ytdlFormatAudio.value = this.state.ytdlFormatAudio;
+    this.ui.ytdlFormatCustom.value = this.state.ytdlFormatCustom;
+
+    const updateDesc = (selectElement) => {
+      if (!selectElement) return;
+      const selectedOption = selectElement.options[selectElement.selectedIndex];
+      if (selectedOption) {
+        document.getElementById(`${selectElement.id}-desc`).textContent =
+          selectedOption.getAttribute("data-desc");
+      }
+    };
+    updateDesc(this.ui.ytdlFormatVideo);
+    updateDesc(this.ui.ytdlFormatAudio);
+
+    this.setDownloadType(this.state.downloadType, false);
+    Logger.log("UI updated to reflect loaded state.");
   },
 
   async updateDownloadText(
@@ -517,7 +584,7 @@ const YtdlApp = {
     }
   },
 
-  setDownloadType(type) {
+  setDownloadType(type, save = true) {
     Logger.log(`Setting download type to: ${type}`);
     this.ui.avWrapper.setAttribute("data-value", type);
     if (type === "video") {
@@ -527,7 +594,11 @@ const YtdlApp = {
       this.ui.audioSwitch.classList.add("selected");
       this.ui.videoSwitch.classList.remove("selected");
     }
+    this.state.downloadType = type;
     this._updateFormatSelectorVisibility();
+    if (save) {
+      this.saveState();
+    }
   },
 };
 
