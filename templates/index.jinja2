@@ -115,17 +115,8 @@
         </p>
         <hr>
         <h2>Changelog</h2>
-        <ul class="changelog-list">
-          {% for pr in changelog %}
-            <li>
-              <a href="{{ pr.url }}" target="_blank" rel="noopener noreferrer">
-                <strong>{{ pr.title }}</strong>
-              </a>
-              <span>Merged on {{ pr.merged_at }} by <a href="{{ pr.user_url }}" target="_blank" rel="noopener noreferrer">{{ pr.user }}</a></span>
-            </li>
-          {% else %}
-            <li>Could not load recent changes. Probably for the best.</li>
-          {% endfor %}
+        <ul class="changelog-list" id="changelog-list">
+          <li>Loading recent changes...</li>
         </ul>
       </div>
     {% endcall %}

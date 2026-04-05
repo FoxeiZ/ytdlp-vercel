@@ -6,10 +6,9 @@ import re
 import uuid
 from io import StringIO
 from pathlib import Path
-from typing import Any, Iterable, MutableSet, cast
+from typing import Any, Iterable, Mapping, MutableSet, cast
 
 import requests
-import yt_dlp
 from dotenv import find_dotenv, load_dotenv
 from flask import (
     Flask,
@@ -24,14 +23,15 @@ from flask import (
 from upstash_redis import Redis
 from upstash_redis.errors import UpstashError
 from yt_dlp import YoutubeDL
+from yt_dlp.postprocessor.metadataparser import MetadataParserPP
 from yt_dlp.utils import DownloadError, ISO639Utils, variadic
 
 MAX_RESPONSE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
-STREAM_CHUNK_SIZE = 512 * 1024
+STREAM_CHUNK_SIZE = 1024 * 1024
 MAX_DOWNLOAD_FILESIZE = "200M"
 API_PREFIX = "/api/ytdl"
-RESPONSE_CACHE_TTL_SECONDS = 7200
+# RESPONSE_CACHE_TTL_SECONDS = 7200
 URL_CACHE_TTL_SECONDS = 1800
 CHANGELOG_CACHE_TTL_SECONDS = 3600
 
@@ -71,12 +71,15 @@ app.config["YTDL_OPTS"] = {
     "quiet": True,
     "noplaylist": True,
     "no_warnings": True,
+    "socket_timeout": 15,
+    "extract_flat": "in_playlist",
     "source_address": "0.0.0.0",
     "extractor_args": {
         "youtubepot-bgutilhttp": {
             "base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"
         }
     },
+    "allowed_extractors": ["^([yY].*?)([tT]).*e?$"],
 }
 
 try:
@@ -100,7 +103,7 @@ class CookiesIOWrapper(StringIO):
         initial_value = ""
         if self.redis_client:
             try:
-                cookies_result = cast(str | None, self.redis_client.get(self.key))
+                cookies_result = self.redis_client.get(self.key)
                 if cookies_result:
                     initial_value = cookies_result
                     app.logger.info("Successfully loaded cookies from Redis.")
@@ -120,10 +123,6 @@ class CookiesIOWrapper(StringIO):
                     f"Redis SET error: {e}. Cookies may not have been saved."
                 )
         super().close()
-
-
-cookies_io = CookiesIOWrapper(redis_client)
-app.config["YTDL_OPTS"]["cookiefile"] = cookies_io
 
 
 @app.template_global("classlist")
@@ -167,10 +166,12 @@ class ClassList(MutableSet):
 
 
 def create_ytdl_extractor(
-    provider: str = "youtube", search_amount: int = 5, extra_opts: dict | None = None
+    provider: str = "youtube",
+    search_amount: int = 5,
+    extra_opts: Mapping[str, Any] | None = None,
 ) -> YoutubeDL:
     base_opts = app.config["YTDL_OPTS"].copy()
-    config = {**base_opts, **(extra_opts or {})}
+    config: Mapping[str, Any] = {**base_opts, **(extra_opts or {})}
     search_prefixes = {
         "soundcloud": f"scsearch{search_amount}",
         "ytmusic": "https://music.youtube.com/search?q=",
@@ -178,8 +179,9 @@ def create_ytdl_extractor(
     config["default_search"] = search_prefixes.get(provider, f"ytsearch{search_amount}")
     if provider == "ytmusic":
         config["playlist_items"] = f"1-{search_amount}"
-    cookies_io.seek(0)
-    return YoutubeDL(config)
+    cookies_io = CookiesIOWrapper(redis_client)
+    config["cookiefile"] = cookies_io
+    return YoutubeDL(config)  # pyright: ignore[reportArgumentType]
 
 
 def create_error_response(
@@ -196,7 +198,7 @@ def create_error_response(
     return jsonify({"success": False, "error": message}), code
 
 
-def get_changelog_data():
+def get_changelog_data() -> list[dict[str, Any]]:
     if (
         not redis_client
         or not app.config["GITHUB_REPO"]
@@ -227,7 +229,7 @@ def get_changelog_data():
         response.raise_for_status()
         prs = response.json()
 
-        changelog = []
+        changelog: list[dict[str, Any]] = []
         for pr in prs:
             if pr.get("merged_at"):
                 user_obj = pr.get("user", {})
@@ -251,7 +253,7 @@ def get_changelog_data():
         return []
 
 
-def get_metadata_opts(info, compat_opts=[]):
+def get_metadata_opts(info: Mapping[str, Any], compat_opts: list[Any] = []):
     meta_prefix = "meta"
     metadata = collections.defaultdict(dict)
 
@@ -299,8 +301,6 @@ def get_metadata_opts(info, compat_opts=[]):
                 "\0", ""
             )
 
-    yield ("-write_id3v1", "1")
-
     for name, value in metadata["common"].items():
         yield ("-metadata", f"{name}={value}")
 
@@ -325,8 +325,12 @@ def log_request_info():
 
 @app.route(API_PREFIX + "/")
 def index():
-    changelog_data = get_changelog_data()
-    return render_template("index.jinja2", changelog=changelog_data)
+    return render_template("index.jinja2")
+
+
+@app.route(API_PREFIX + "/changelog")
+def changelog():
+    return jsonify(get_changelog_data())
 
 
 @app.route(API_PREFIX + "/check", methods=["POST"])
@@ -369,60 +373,60 @@ def check():
                 {
                     "actions": [
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            MetadataParserPP.interpretter,
                             "",
                             "(?P<meta_synopsis>)",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            MetadataParserPP.interpretter,
                             "",
                             "(?P<meta_date>)",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.replacer,
+                            MetadataParserPP.replacer,
                             "meta_artist",
                             " - Topic$",
                             "",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            MetadataParserPP.interpretter,
                             "artist",
                             "(?P<meta_album_artist>.*)",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.replacer,
+                            MetadataParserPP.replacer,
                             "meta_album_artist",
                             "[,/&].+",
                             "",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            MetadataParserPP.interpretter,
                             "%(track_number,playlist_index|01)s",
                             "%(track_number)s",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            MetadataParserPP.interpretter,
                             "%(album,playlist_title|Unknown Album)s",
                             "%(album)s",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.replacer,
+                            MetadataParserPP.replacer,
                             "album",
                             "^Album - ",
                             "",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            MetadataParserPP.interpretter,
                             "%(genre|Unknown Genre)s",
                             "%(genre)s",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            MetadataParserPP.interpretter,
                             "description",
                             "(?P<meta_date>(?<=Released on: )\\d{4})",
                         ),
                         (
-                            yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+                            MetadataParserPP.interpretter,
                             "",
                             "(?P<description>)",
                         ),
@@ -452,10 +456,14 @@ def check():
     if "requested_formats" in info:
         ret_data["needFFmpeg"] = True
         req_formats = []
+        pipe = redis_client.pipeline() if redis_client else None
         for i in info.get("requested_formats", []):
+            assert "url" in i, "Each requested format must contain a URL."
+            assert "ext" in i, "Each requested format must contain an extension."
+
             uid = uuid.uuid4().hex[:12]
-            if redis_client:
-                redis_client.set(f"ytdl:url:{uid}", i["url"], ex=URL_CACHE_TTL_SECONDS)
+            if pipe:
+                pipe.set(f"ytdl:url:{uid}", i["url"], ex=URL_CACHE_TTL_SECONDS)
             req_formats.append(
                 {
                     "id": uid,
@@ -466,6 +474,11 @@ def check():
                     "type": "audio" if i.get("audio_channels") else "video",
                 }
             )
+        if pipe:
+            try:
+                pipe.exec()
+            except UpstashError as e:
+                app.logger.error(f"Redis pipeline exec failed: {e}")
         ret_data["requestedFormats"] = req_formats
     else:
         url = info.get("url")
@@ -494,9 +507,7 @@ def check():
 
     if redis_client and cache_key:
         try:
-            redis_client.set(
-                cache_key, json.dumps(ret_data), ex=RESPONSE_CACHE_TTL_SECONDS
-            )
+            redis_client.set(cache_key, json.dumps(ret_data), ex=URL_CACHE_TTL_SECONDS)
             app.logger.info(f"Successfully cached response for key: {cache_key}")
         except UpstashError as e:
             app.logger.error(f"Redis cache set failed: {e}")

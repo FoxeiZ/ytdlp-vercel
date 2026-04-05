@@ -202,6 +202,8 @@ const YtdlApp = {
     });
 
     Logger.info("Initialization complete.");
+    
+    this.fetchChangelog();
   },
 
   saveState() {
@@ -598,6 +600,34 @@ const YtdlApp = {
     this._updateFormatSelectorVisibility();
     if (save) {
       this.saveState();
+    }
+  },
+
+  async fetchChangelog() {
+    const listElement = document.getElementById("changelog-list");
+    if (!listElement) return;
+
+    try {
+      const response = await fetch(`${this.config.API_BASE}/changelog`);
+      if (!response.ok) throw new Error("Network response was not ok");
+      const prs = await response.json();
+      
+      if (prs.length === 0) {
+        listElement.innerHTML = "<li>No recent changes found.</li>";
+        return;
+      }
+      
+      listElement.innerHTML = prs.map(pr => `
+        <li>
+          <a href="${pr.url}" target="_blank" rel="noopener noreferrer">
+            <strong>${pr.title}</strong>
+          </a>
+          <span>Merged on ${pr.merged_at} by <a href="${pr.user_url}" target="_blank" rel="noopener noreferrer">${pr.user}</a></span>
+        </li>
+      `).join('');
+    } catch (error) {
+      Logger.error("Failed to fetch changelog:", error);
+      listElement.innerHTML = "<li>Could not load recent changes. Probably for the best.</li>";
     }
   },
 };
