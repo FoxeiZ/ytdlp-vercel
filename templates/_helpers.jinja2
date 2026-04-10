@@ -10,11 +10,7 @@
 
 {% macro modal(title='', visible=False, className='', content_width='50%') %}
   {% set classes = classlist(className, "modal") %}
-  {% if visible %}
-    {{ classes.add("visible") }}
-  {% else %}
-    {{ classes.add("hidden") }}
-  {% endif %}
+  {% if not visible %}{{ classes.add("hidden") }}{% endif %}
 
   <div class="{{ classes }}" {{ kwargs|xmlattr }}>
     {% if title %}<p class="modal-title">{{ title }}</p>{% endif %}

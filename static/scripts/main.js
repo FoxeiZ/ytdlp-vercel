@@ -1,13 +1,13 @@
 const Logger = {
   verbose: true,
   get log() {
-    if (!this.verbose) return () => {};
+    if (!this.verbose) return () => { };
     const timestamp = new Date().toLocaleTimeString();
     const prefix = `[${timestamp}] [YTDL-APP]`;
     return console.log.bind(console, prefix);
   },
   get info() {
-    if (!this.verbose) return () => {};
+    if (!this.verbose) return () => { };
     const timestamp = new Date().toLocaleTimeString();
     const prefix = `[${timestamp}] [YTDL-APP]`;
     return console.info.bind(console, prefix);
@@ -107,6 +107,8 @@ const YtdlApp = {
     ytdlFormatVideo: "",
     ytdlFormatAudio: "",
     ytdlFormatCustom: "",
+    fetchLyrics: false,
+    lyricsProvider: "auto",
   },
 
   init() {
@@ -130,6 +132,9 @@ const YtdlApp = {
       customFormatInputWrapper: document.getElementById(
         "custom-format-input-wrapper"
       ),
+      fetchLyrics: document.getElementById("fetch-lyrics"),
+      lyricsProvider: document.getElementById("lyrics-provider"),
+      lyricsProviderWrapper: document.getElementById("lyrics-provider-wrapper"),
     });
 
     this._applyStateToUI();
@@ -166,16 +171,43 @@ const YtdlApp = {
       this.saveState();
     });
 
+    if (this.ui.fetchLyrics) {
+      this.ui.fetchLyrics.addEventListener("change", (e) => {
+        this.state.fetchLyrics = e.target.checked;
+        Logger.info(`State updated: fetchLyrics is now ${this.state.fetchLyrics}`);
+        this._setCollapsedState(this.ui.lyricsProviderWrapper, this.state.fetchLyrics);
+        this.saveState();
+      });
+    }
+
+    if (this.ui.lyricsProvider) {
+      this.ui.lyricsProvider.addEventListener("change", (e) => {
+        this.state.lyricsProvider = e.target.value;
+        Logger.info(`State updated: lyricsProvider is now ${this.state.lyricsProvider}`);
+        updateDesc(this.ui.lyricsProvider);
+        this.saveState();
+      });
+    }
+
+    const updateDesc = (selectElement) => {
+      if (!selectElement) return;
+      const selectedOption = selectElement.options[selectElement.selectedIndex];
+      if (selectedOption) {
+        document.getElementById(`${selectElement.id}-desc`).textContent =
+          selectedOption.getAttribute("data-desc");
+      }
+    };
+
     const setupFormatListener = (selectElement, stateKey) => {
+      if (!selectElement) return;
       selectElement.addEventListener("change", (e) => {
         const selectedOption = e.target.options[e.target.selectedIndex];
-        this.state[stateKey] = e.target.value;
-        document.getElementById(`${e.target.id}-desc`).textContent =
-          selectedOption.getAttribute("data-desc");
-        this._updateCustomFormatVisibility();
-        Logger.log(
-          `State updated: ${stateKey} is now "${this.state[stateKey]}"`
+        this.state[stateKey] = selectedOption.value;
+        Logger.info(
+          `State updated: ${stateKey} is now ${this.state[stateKey]}`
         );
+        updateDesc(selectElement);
+        this._updateCustomFormatVisibility();
         this.saveState();
       });
     };
@@ -202,7 +234,7 @@ const YtdlApp = {
     });
 
     Logger.info("Initialization complete.");
-    
+
     this.fetchChangelog();
   },
 
@@ -213,6 +245,8 @@ const YtdlApp = {
       ytdlFormatVideo: this.state.ytdlFormatVideo,
       ytdlFormatAudio: this.state.ytdlFormatAudio,
       ytdlFormatCustom: this.state.ytdlFormatCustom,
+      fetchLyrics: this.state.fetchLyrics,
+      lyricsProvider: this.state.lyricsProvider,
     };
     localStorage.setItem("ytdlAppSettings", JSON.stringify(settingsToSave));
     Logger.log("Settings saved to localStorage.", settingsToSave);
@@ -227,6 +261,8 @@ const YtdlApp = {
         const defaultState = {
           ytdlFormatVideo: this.ui.ytdlFormatVideo?.value || "",
           ytdlFormatAudio: this.ui.ytdlFormatAudio?.value || "",
+          fetchLyrics: false,
+          lyricsProvider: "auto",
         };
 
         Object.assign(this.state, defaultState, parsedSettings);
@@ -247,6 +283,12 @@ const YtdlApp = {
     this.ui.ytdlFormatVideo.value = this.state.ytdlFormatVideo;
     this.ui.ytdlFormatAudio.value = this.state.ytdlFormatAudio;
     this.ui.ytdlFormatCustom.value = this.state.ytdlFormatCustom;
+    if (this.ui.fetchLyrics) {
+      this.ui.fetchLyrics.checked = this.state.fetchLyrics;
+    }
+    if (this.ui.lyricsProvider) {
+      this.ui.lyricsProvider.value = this.state.lyricsProvider;
+    }
 
     const updateDesc = (selectElement) => {
       if (!selectElement) return;
@@ -258,6 +300,9 @@ const YtdlApp = {
     };
     updateDesc(this.ui.ytdlFormatVideo);
     updateDesc(this.ui.ytdlFormatAudio);
+    updateDesc(this.ui.lyricsProvider);
+
+    this._setCollapsedState(this.ui.lyricsProviderWrapper, this.state.fetchLyrics);
 
     this.setDownloadType(this.state.downloadType, false);
     Logger.log("UI updated to reflect loaded state.");
@@ -283,7 +328,6 @@ const YtdlApp = {
     const modal = document.getElementById(modalId);
     if (modal) {
       modal.classList.toggle("hidden");
-      modal.classList.toggle("visible");
     } else {
       Logger.warn(`Modal with ID "${modalId}" not found.`);
     }
@@ -430,6 +474,58 @@ const YtdlApp = {
     return blob;
   },
 
+  async fetchAndEmbedLyrics(data, metadataParams) {
+    if (!this.state.fetchLyrics) return;
+
+    const { title, artist, album } = data;
+
+    if (title) {
+      Logger.info(`Fetching lyrics for: ${title} - ${artist}`);
+      await this.updateDownloadText(`fetching lyrics...`);
+      try {
+        const endpoint = this.state.lyricsProvider === "auto"
+          ? "/api/lyrics/all"
+          : `/api/lyrics/${this.state.lyricsProvider}`;
+
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, artist, album })
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          let lyrics = null;
+
+          if (this.state.lyricsProvider === "auto") {
+            if (data.success && data.results) {
+              const res = data.results;
+              if (res.LrcLibLyricsPlugin?.synced) lyrics = res.LrcLibLyricsPlugin.synced;
+              else if (res.ShazamLyricsPlugin?.synced) lyrics = res.ShazamLyricsPlugin.synced;
+              else if (res.MusixMatchLyricsPlugin?.synced) lyrics = res.MusixMatchLyricsPlugin.synced;
+              else if (res.LrcLibLyricsPlugin?.unsynced) lyrics = res.LrcLibLyricsPlugin.unsynced;
+              else if (res.ShazamLyricsPlugin?.unsynced) lyrics = res.ShazamLyricsPlugin.unsynced;
+              else if (res.MusixMatchLyricsPlugin?.unsynced) lyrics = res.MusixMatchLyricsPlugin.unsynced;
+            }
+          } else {
+            if (data.success) {
+              lyrics = data.synced || data.unsynced;
+            }
+          }
+
+          if (lyrics) {
+            Logger.info("Found lyrics! Embedding into metadata.");
+            metadataParams.push("-metadata", `lyrics=${lyrics}`);
+          } else {
+            Logger.info("No lyrics found from the selected provider(s).");
+          }
+        }
+      } catch (e) {
+        Logger.error("Failed to fetch lyrics", e);
+      }
+    }
+  },
+
   async convertAudio(data) {
     Logger.info("Starting audio conversion process.");
     const ffmpeg = window.WP_ffmpeg;
@@ -443,8 +539,10 @@ const YtdlApp = {
       Logger.log(`Writing source audio to virtual FS as "${inputFilename}"`);
       await ffmpeg.writeFile(inputFilename, new Uint8Array(fileBuffer));
 
+      let metadataParams = data.metadata ? data.metadata.flat() : [];
+      await this.fetchAndEmbedLyrics(data, metadataParams);
+
       await this.updateDownloadText(`converting to ${data.ext}...`);
-      const metadataParams = data.metadata ? data.metadata.flat() : [];
       const execParams = [
         "-i",
         inputFilename,
@@ -511,10 +609,13 @@ const YtdlApp = {
       Logger.info(
         "All streams have been downloaded and written to the virtual FS."
       );
+
+      let metadataParams = data.metadata ? data.metadata.flat() : [];
+      await this.fetchAndEmbedLyrics(data, metadataParams);
+
       await this.updateDownloadText("merging...");
       const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
       filesToDelete.push(outputFilename);
-      const metadataParams = data.metadata ? data.metadata.flat() : [];
       const execParams = [
         "-i",
         remuxParams.videoName,
@@ -562,27 +663,29 @@ const YtdlApp = {
   },
 
   _updateFormatSelectorVisibility() {
-    const downloadType = this.ui.avWrapper.getAttribute("data-value");
-    if (downloadType === "video") {
-      this.ui.formatSelectorVideo.classList.remove("hidden-by-js");
-      this.ui.formatSelectorAudio.classList.add("hidden-by-js");
-    } else {
-      this.ui.formatSelectorVideo.classList.add("hidden-by-js");
-      this.ui.formatSelectorAudio.classList.remove("hidden-by-js");
-    }
+    const downloadType = this.state.downloadType;
+    const isVideo = downloadType === "video";
+    this._setCollapsedState(this.ui.formatSelectorVideo, isVideo);
+    this._setCollapsedState(this.ui.formatSelectorAudio, !isVideo);
     this._updateCustomFormatVisibility();
   },
 
   _updateCustomFormatVisibility() {
-    const downloadType = this.ui.avWrapper.getAttribute("data-value");
+    const downloadType = this.state.downloadType;
     const currentFormat =
       downloadType === "video"
         ? this.state.ytdlFormatVideo
         : this.state.ytdlFormatAudio;
-    if (currentFormat === "custom") {
-      this.ui.customFormatInputWrapper.classList.remove("hidden-by-js");
+    this._setCollapsedState(this.ui.customFormatInputWrapper, currentFormat === "custom");
+  },
+
+  _setCollapsedState(element, isVisible) {
+    if (!element) return;
+
+    if (isVisible) {
+      element.classList.remove("is-collapsed");
     } else {
-      this.ui.customFormatInputWrapper.classList.add("hidden-by-js");
+      element.classList.add("is-collapsed");
     }
   },
 
@@ -611,12 +714,12 @@ const YtdlApp = {
       const response = await fetch(`${this.config.API_BASE}/changelog`);
       if (!response.ok) throw new Error("Network response was not ok");
       const prs = await response.json();
-      
+
       if (prs.length === 0) {
         listElement.innerHTML = "<li>No recent changes found.</li>";
         return;
       }
-      
+
       listElement.innerHTML = prs.map(pr => `
         <li>
           <a href="${pr.url}" target="_blank" rel="noopener noreferrer">

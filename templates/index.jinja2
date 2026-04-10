@@ -93,15 +93,41 @@
           <div id="format-selector-video">
             {{ select_modal_options(title='Video Presets', input_id='ytdl-fsl-video', presets=video_presets) }}
           </div>
-          <div id="format-selector-audio" class="hidden-by-js">
+          <div id="format-selector-audio" class="is-collapsed">
             {{ select_modal_options(title='Audio Presets', input_id='ytdl-fsl-audio', presets=audio_presets) }}
           </div>
-          <div id="custom-format-input-wrapper" class="hidden-by-js">
+          <div id="custom-format-input-wrapper" class="is-collapsed">
             {{ input_modal_options(title='Custom Format', input_id='ytdl-fsl-custom', description='Enter a custom yt-dlp format string.') }}
           </div>
         </div>
         <div class="tab-pane">
           {{ toggle_modal_options(title='Use FFmpeg', input_id='use-ffmpeg', description='If enabled, allows merging separate video and audio streams for higher quality. Requires a bit more processing time.') }}
+          {{ toggle_modal_options(title='Fetch Lyrics', input_id='fetch-lyrics', description='If enabled, attempts to fetch and embed lyrics into the downloaded file. Only works when FFmpeg is processing.') }}
+          {% set lyrics_providers = [
+            {
+              "title": "Auto (Best Available)",
+              "value": "auto",
+              "description": "Automatically falls back to find the best synced/unsynced lyrics across all providers."
+            },
+            {
+              "title": "LrcLib",
+              "value": "lrclib",
+              "description": "Fetch LRC format lyrics from LrcLib."
+            },
+            {
+              "title": "Shazam",
+              "value": "shazam",
+              "description": "Scrape from Shazam."
+            },
+            {
+              "title": "MusixMatch",
+              "value": "musixmatch",
+              "description": "Scrape from MusixMatch."
+            }
+          ] %}
+          <div id="lyrics-provider-wrapper" class="is-collapsed">
+            {{ select_modal_options(title='Lyrics Provider', input_id='lyrics-provider', presets=lyrics_providers) }}
+          </div>
         </div>
       {% endcall %}
 

@@ -4,9 +4,10 @@ import logging
 import os
 import re
 import uuid
+from collections.abc import Generator, Iterable, Mapping, MutableSet, Sequence
 from io import StringIO
 from pathlib import Path
-from typing import Any, Iterable, Mapping, MutableSet, cast
+from typing import Any, cast
 
 import requests
 from dotenv import find_dotenv, load_dotenv
@@ -51,9 +52,7 @@ app = Flask(
     static_folder=Path(__file__).parent.parent / "static",
 )
 
-formatter = logging.Formatter(
-    "[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s"
-)
+formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s")
 app.logger.handlers[0].setFormatter(formatter)
 app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
 
@@ -74,11 +73,7 @@ app.config["YTDL_OPTS"] = {
     "socket_timeout": 15,
     "extract_flat": "in_playlist",
     "source_address": "0.0.0.0",
-    "extractor_args": {
-        "youtubepot-bgutilhttp": {
-            "base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"
-        }
-    },
+    "extractor_args": {"youtubepot-bgutilhttp": {"base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"}},
     "allowed_extractors": ["^([yY].*?)([tT]).*e?$"],
 }
 
@@ -90,9 +85,7 @@ try:
     )
     app.logger.info("Successfully connected to Redis.")
 except UpstashError as e:
-    app.logger.critical(
-        f"Could not connect to Redis: {e}. Caching and cookie persistence will be disabled."
-    )
+    app.logger.critical(f"Could not connect to Redis: {e}. Caching and cookie persistence will be disabled.")
     redis_client = None
 
 
@@ -108,9 +101,7 @@ class CookiesIOWrapper(StringIO):
                     initial_value = cookies_result
                     app.logger.info("Successfully loaded cookies from Redis.")
             except UpstashError as e:
-                app.logger.error(
-                    f"Redis GET error: {e}. Proceeding without persistent cookies."
-                )
+                app.logger.error(f"Redis GET error: {e}. Proceeding without persistent cookies.")
         super().__init__(initial_value)
 
     def close(self):
@@ -119,15 +110,13 @@ class CookiesIOWrapper(StringIO):
                 self.redis_client.set(self.key, self.getvalue())
                 app.logger.info("Successfully saved cookies to Redis.")
             except UpstashError as e:
-                app.logger.error(
-                    f"Redis SET error: {e}. Cookies may not have been saved."
-                )
+                app.logger.error(f"Redis SET error: {e}. Cookies may not have been saved.")
         super().close()
 
 
 @app.template_global("classlist")
-class ClassList(MutableSet):
-    def __init__(self, arg: str | Iterable | None = None, *args: str):
+class ClassList(MutableSet[str]):
+    def __init__(self, arg: str | Iterable[str] | None = None, *args: str):
         classes: Iterable[str] = []
         if isinstance(arg, str):
             classes = arg.split()
@@ -139,7 +128,7 @@ class ClassList(MutableSet):
         if args:
             self.classes.update(args)
 
-    def __contains__(self, class_):
+    def __contains__(self, class_: object):
         return class_ in self.classes
 
     def __iter__(self):
@@ -148,12 +137,12 @@ class ClassList(MutableSet):
     def __len__(self):
         return len(self.classes)
 
-    def add(self, *classes):  # type: ignore[override]
+    def add(self, *classes: str):  # type: ignore[override]
         for class_ in classes:
             self.classes.add(class_)
         return ""
 
-    def discard(self, *classes):  # type: ignore[override]
+    def discard(self, *classes: str):  # type: ignore[override]
         for class_ in classes:
             self.classes.discard(class_)
         return ""
@@ -162,7 +151,7 @@ class ClassList(MutableSet):
         return " ".join(sorted(self.classes))
 
     def __html__(self):
-        return 'class="%s"' % self if self else ""
+        return f'class="{self}"' if self else ""
 
 
 def create_ytdl_extractor(
@@ -171,7 +160,7 @@ def create_ytdl_extractor(
     extra_opts: Mapping[str, Any] | None = None,
 ) -> YoutubeDL:
     base_opts = app.config["YTDL_OPTS"].copy()
-    config: Mapping[str, Any] = {**base_opts, **(extra_opts or {})}
+    config = {**base_opts, **(extra_opts or {})}
     search_prefixes = {
         "soundcloud": f"scsearch{search_amount}",
         "ytmusic": "https://music.youtube.com/search?q=",
@@ -184,9 +173,7 @@ def create_ytdl_extractor(
     return YoutubeDL(config)  # pyright: ignore[reportArgumentType]
 
 
-def create_error_response(
-    message: str, code: int = 500, exc: Exception | None = None
-) -> tuple[Response, int]:
+def create_error_response(message: str, code: int = 500, exc: Exception | None = None) -> tuple[Response, int]:
     if exc:
         app.logger.error(f"Exception caught: {message}", exc_info=exc)
     else:
@@ -199,11 +186,7 @@ def create_error_response(
 
 
 def get_changelog_data() -> list[dict[str, Any]]:
-    if (
-        not redis_client
-        or not app.config["GITHUB_REPO"]
-        or not app.config["GITHUB_TOKEN"]
-    ):
+    if not redis_client or not app.config["GITHUB_REPO"] or not app.config["GITHUB_TOKEN"]:
         app.logger.warning("Changelog disabled due to missing Redis or GitHub config.")
         return []
 
@@ -243,9 +226,7 @@ def get_changelog_data() -> list[dict[str, Any]]:
                     }
                 )
 
-        redis_client.set(
-            cache_key, json.dumps(changelog), ex=CHANGELOG_CACHE_TTL_SECONDS
-        )
+        redis_client.set(cache_key, json.dumps(changelog), ex=CHANGELOG_CACHE_TTL_SECONDS)
         app.logger.info("Successfully fetched and cached changelog from GitHub.")
         return changelog
     except requests.exceptions.RequestException as e:
@@ -253,23 +234,26 @@ def get_changelog_data() -> list[dict[str, Any]]:
         return []
 
 
-def get_metadata_opts(info: Mapping[str, Any], compat_opts: list[Any] = []):
-    meta_prefix = "meta"
-    metadata = collections.defaultdict(dict)
+def as_str_list(values: str | Sequence[str]) -> list[str]:
+    return [values] if isinstance(values, str) else list(values)
 
-    def add(meta_list, info_list=None):
+
+def get_metadata_opts(info: Mapping[str, Any], compat_opts: Sequence[Any] | None = None):
+    if compat_opts is None:
+        compat_opts = []
+    meta_prefix = "meta"
+    metadata: collections.defaultdict[str, dict[str, str]] = collections.defaultdict(dict)
+
+    def add(meta_list: str | Sequence[str], info_list: str | Sequence[str] | None = None):
+        search_keys = [f"{meta_prefix}_", *as_str_list(info_list if info_list is not None else meta_list)]
         value = next(
-            (
-                info[key]
-                for key in [f"{meta_prefix}_", *variadic(info_list or meta_list)]
-                if info.get(key) is not None
-            ),
+            (info[key] for key in search_keys if info.get(key) is not None),
             None,
         )
         if value not in ("", None):
             value = ", ".join(map(str, variadic(value)))
             value = value.replace("\0", "")
-            metadata["common"].update(dict.fromkeys(variadic(meta_list), value))
+            metadata["common"].update(dict.fromkeys(as_str_list(meta_list), value))
 
     add("title", ("track", "title"))
     add("date", "upload_date")
@@ -297,9 +281,7 @@ def get_metadata_opts(info: Mapping[str, Any], compat_opts: list[Any] = []):
     for key, value in info.items():
         mobj = re.fullmatch(meta_regex, key)
         if value is not None and mobj:
-            metadata[mobj.group("i") or "common"][mobj.group("key")] = value.replace(
-                "\0", ""
-            )
+            metadata[mobj.group("i") or "common"][mobj.group("key")] = value.replace("\0", "")
 
     for name, value in metadata["common"].items():
         yield ("-metadata", f"{name}={value}")
@@ -335,7 +317,7 @@ def changelog():
 
 @app.route(API_PREFIX + "/check", methods=["POST"])
 def check():
-    data = cast(dict | None, request.get_json(silent=True))
+    data = cast("dict[str, Any] | None", request.get_json(silent=True))
     if not data:
         return create_error_response("Invalid JSON payload.", 400)
     query = data.get("query")
@@ -352,9 +334,7 @@ def check():
                 return jsonify(json.loads(cached_response))
             app.logger.info(f"Cache MISS for key: {cache_key}")
         except UpstashError as e:
-            app.logger.error(
-                f"Redis cache check failed: {e}. Proceeding without cache."
-            )
+            app.logger.error(f"Redis cache check failed: {e}. Proceeding without cache.")
 
     try:
         format_selector = _build_check_format_string(
@@ -440,15 +420,23 @@ def check():
     try:
         info = extractor.extract_info(query, download=False, process=True)
         if not info:
-            return create_error_response(
-                "yt-dlp failed to extract info (returned None).", 500
-            )
+            return create_error_response("yt-dlp failed to extract info (returned None).", 500)
     except DownloadError as e:
         return create_error_response(f"Extraction failed: {e}", 500, exc=e)
 
     metadata_opts = list(get_metadata_opts(info))
+
+    artist_keys = ["artist", "artists", "creator", "creators", "uploader", "uploader_id"]
+    artist_val = next((info[k] for k in artist_keys if info.get(k) is not None), None)
+    artist = ", ".join(map(str, variadic(artist_val))).replace("\0", "") if artist_val else ""
+
+    album_val = info.get("album")
+    album = ", ".join(map(str, variadic(album_val))).replace("\0", "") if album_val else ""
+
     ret_data = {
         "title": info.get("title", info.get("id", "")),
+        "artist": artist,
+        "album": album,
         "ext": info.get("ext", "bin"),
         "metadata": list(metadata_opts),
     }
@@ -483,9 +471,7 @@ def check():
     else:
         url = info.get("url")
         if not url:
-            return create_error_response(
-                "No downloadable URL found for the selected format.", 404
-            )
+            return create_error_response("No downloadable URL found for the selected format.", 404)
 
         uid = uuid.uuid4().hex[:12]
         if redis_client:
@@ -497,13 +483,11 @@ def check():
         if data.get("type") == "audio":
             target_ext = data.get("format")
             actual_ext = info.get("ext")
-            if target_ext and target_ext != "custom" and target_ext != actual_ext:
+            if target_ext and target_ext not in ("custom", actual_ext):
                 ret_data["needsConversion"] = True
                 ret_data["ext"] = target_ext
                 ret_data["sourceExt"] = actual_ext
-                app.logger.info(
-                    f"Audio conversion needed: from '{actual_ext}' to '{target_ext}'"
-                )
+                app.logger.info(f"Audio conversion needed: from '{actual_ext}' to '{target_ext}'")
 
     if redis_client and cache_key:
         try:
@@ -527,17 +511,13 @@ def download():
         except UpstashError as e:
             return create_error_response("Failed to connect to cache.", 500, exc=e)
     if not url:
-        return create_error_response(
-            "Download link expired or invalid. Please try again.", 410
-        )
+        return create_error_response("Download link expired or invalid. Please try again.", 410)
     range_header = request.headers.get("Range", "bytes=0-")
     app.logger.info(f"Handling range request for id '{uid}' with range: {range_header}")
     return _range_download_handler(url, range_header)
 
 
-def _build_check_format_string(
-    req_type: str, has_ffmpeg: bool, custom_format: str
-) -> str:
+def _build_check_format_string(req_type: str, has_ffmpeg: bool, custom_format: str) -> str:
     final_format = custom_format
     if not final_format or final_format == "custom":
         if req_type == "video":
@@ -558,7 +538,7 @@ def _build_check_format_string(
 
 def _range_download_handler(url: str, range_header: str):
     try:
-        start_byte_str = range_header.split("=")[-1].split("-")[0]
+        start_byte_str = range_header.rsplit("=", maxsplit=1)[-1].split("-", maxsplit=1)[0]
         start_byte = int(start_byte_str) if start_byte_str.isdigit() else 0
     except (IndexError, ValueError):
         start_byte = 0
@@ -574,17 +554,12 @@ def _range_download_handler(url: str, range_header: str):
         if "Content-Range" in r.headers:
             resp_headers["Content-Range"] = r.headers["Content-Range"]
 
-        def generate():
-            for chunk in r.iter_content(chunk_size=STREAM_CHUNK_SIZE):
-                yield chunk
+        def generate() -> Generator[bytes, None, None]:
+            yield from r.iter_content(chunk_size=STREAM_CHUNK_SIZE)
 
-        return Response(
-            stream_with_context(generate()), headers=resp_headers, status=r.status_code
-        )
+        return Response(stream_with_context(generate()), headers=resp_headers, status=r.status_code)
     except requests.exceptions.RequestException as e:
-        return create_error_response(
-            f"Failed to download content range: {e}", 502, exc=e
-        )
+        return create_error_response(f"Failed to download content range: {e}", 502, exc=e)
 
 
 if __name__ == "__main__":
@@ -592,5 +567,18 @@ if __name__ == "__main__":
     @app.route("/")
     def index_redirect():
         return redirect(url_for("index"))
+
+    @app.route("/api/lyrics/<path:subpath>", methods=["GET", "POST"])
+    def lyrics_redirect(subpath: str):
+        r = requests.get(f"http://127.0.0.1:8001/api/lyrics/{subpath}", timeout=5)
+        return Response(r.content, status=r.status_code, content_type=r.headers.get("Content-Type", "application/json"))
+
+    @app.after_request
+    def log_response_info(response: Response):
+        header = response.headers
+        header["Access-Control-Allow-Origin"] = "*"
+        header["Access-Control-Allow-Headers"] = "Origin, X-Requested-With, Content-Type, Accept, authorization"
+        header["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        return response
 
     app.run(host="0.0.0.0", port=8000, debug=True)
