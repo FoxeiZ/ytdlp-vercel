@@ -4,7 +4,7 @@ module.exports = {
     entry: './src/index.js',
     output: {
         filename: 'webpack.js',
-        path: path.resolve(__dirname, '../static/scripts/dist'),
+        path: path.resolve(__dirname, '../src/static/scripts/dist'),
     },
     mode: 'development',
 };

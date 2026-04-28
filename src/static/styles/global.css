@@ -61,11 +61,6 @@ header {
   opacity: 0 !important;
 }
 
-.visible {
-  visibility: visible !important;
-  opacity: 1 !important;
-}
-
 #main-toolbox {
   position: fixed;
   top: 50%;
@@ -291,8 +286,8 @@ button-component.disabled {
   color: var(--disabled-text);
 }
 
-.hidden-by-js {
-  display: none !important;
+.is-collapsed {
+  display: none;
 }
 
 @media (min-width: 768px) {
