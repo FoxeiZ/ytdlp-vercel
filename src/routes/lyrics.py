@@ -1,59 +1,34 @@
-# pyright: reportUnknownVariableType=false, reportUnknownArgumentType=false
-
 from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import urllib.parse
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import requests
-from dotenv import find_dotenv, load_dotenv
 from flask import Flask, Response, jsonify, request
 from requests.adapters import HTTPAdapter
-from upstash_redis import Redis
-from upstash_redis.errors import UpstashError
 from urllib3.util.retry import Retry
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
 
-API_PREFIX = "/api/lyrics"
+from flask import Blueprint, current_app
 
-load_dotenv()
-load_dotenv(find_dotenv(".env.local"))
+logger = logging.getLogger(__name__)
+bp = Blueprint("lyrics", __name__)
 
-app = Flask(__name__)
-
-formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s")
-if app.logger.handlers:
-    app.logger.handlers[0].setFormatter(formatter)
-app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
-
-app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
-app.config["KV_REST_API_TOKEN"] = os.getenv("KV_REST_API_TOKEN", "")
-
-try:
-    redis_client = Redis(
-        url=app.config["KV_REST_API_URL"],
-        token=app.config["KV_REST_API_TOKEN"],
-        allow_telemetry=False,
-    )
-    app.logger.info("Successfully connected to Redis in lyrics module.")
-except UpstashError as e:
-    app.logger.critical(f"Could not connect to Redis: {e}.")
-    redis_client = None
+__all__ = ("register_routes",)
 
 
 def create_error_response(message: str, code: int = 500, exc: Exception | None = None) -> tuple[Response, int]:
     if exc:
-        app.logger.error(f"Exception caught: {message}", exc_info=exc)
+        current_app.logger.error(f"Exception caught: {message}", exc_info=exc)
     else:
-        app.logger.warning(f"Returning error to client: {message} (Code: {code})")
+        current_app.logger.warning(f"Returning error to client: {message} (Code: {code})")
     return jsonify({"success": False, "error": message}), code
 
 
@@ -66,7 +41,7 @@ class LyricsPluginBase:
         if not self.artist and ("artists" in info or "creators" in info or "uploader" in info):
             self.artist = (info.get("artists") or info.get("creators") or [info.get("uploader", "")])[0]
 
-        self._to_screen: Callable[[str], None] = to_screen or app.logger.info
+        self._to_screen: Callable[[str], None] = to_screen or current_app.logger.info
 
     def to_screen(self, message: str):
         self._to_screen(f"{self.__class__.__name__}: {message}")
@@ -116,7 +91,7 @@ class MusixMatchLyricsPlugin(LyricsPluginBase):
                 cls.token = data["message"]["body"]["user_token"]
                 return cls.token
         except Exception as e:
-            app.logger.error(f"Error fetching MusixMatch token: {e}")
+            current_app.logger.error(f"Error fetching MusixMatch token: {e}")
         return None
 
     def find_lyrics(self, *, album: str = "", artist: str = "", title: str = "", renew: bool = False) -> dict[str, Any] | None:
@@ -261,7 +236,9 @@ class ShazamLyricsPlugin(LyricsPluginBase):
         songs = data.get("results", {}).get("songs", {}).get("data", [])
         for song in songs:
             sz_name = song["attributes"]["name"]
+            current_app.logger.info(f"Comparing '{self.title}' to '{sz_name}'")
             sm = SequenceMatcher(lambda x: x in ("-", "_"), (self.title or "").lower(), sz_name.lower())
+            current_app.logger.info(f"Similarity ratio: {sm.ratio():.4f}")
             if round(sm.ratio(), 2) >= 0.7:
                 return (
                     song["id"],
@@ -438,11 +415,11 @@ class LrcLibLyricsPlugin(LyricsPluginBase):
         return self.lyrics_data.get("syncedLyrics") if self.lyrics_data else None
 
 
-@app.before_request
+@bp.before_request
 def log_request_info():
-    app.logger.info(f"Lyrics Request: {request.method} {request.path}")
+    current_app.logger.info(f"Lyrics Request: {request.method} {request.path}")
     if request.is_json and request.method == "POST":
-        app.logger.info(f"Lyrics Payload: {request.get_json()}")
+        current_app.logger.info(f"Lyrics Payload: {request.get_json()}")
 
 
 def get_lyrics_response(plugin_class: type[LyricsPluginBase], data: dict[str, Any]):
@@ -451,7 +428,7 @@ def get_lyrics_response(plugin_class: type[LyricsPluginBase], data: dict[str, An
     if not title and plugin_class in (LrcLibLyricsPlugin, MusixMatchLyricsPlugin, ShazamLyricsPlugin):
         return create_error_response("Missing required argument: title", 400)
 
-    plugin = plugin_class(data, to_screen=app.logger.info)
+    plugin = plugin_class(data, to_screen=current_app.logger.info)
     try:
         synced = plugin.get_synced()
         unsynced = plugin.get_unsynced()
@@ -467,7 +444,7 @@ def get_lyrics_response(plugin_class: type[LyricsPluginBase], data: dict[str, An
         return create_error_response(f"Lyrics fetch failed: {e}", 500, exc=e)
 
 
-@app.route(API_PREFIX + "/", methods=["GET"])
+@bp.route("/", methods=["GET"])
 def index():
     return """<pre>Available plugins:
     - all (fetches from all providers)
@@ -475,10 +452,11 @@ def index():
     - lrclib
     - musixmatch
 Use POST /api/lyrics/&lt;plugin&gt; with JSON body containing at least 'title' (and optionally 'artist' and 'album') to fetch lyrics.
+Or GET /api/lyrics/&lt;plugin&gt; with query parameters for the same effect.
     </pre>"""
 
 
-@app.route(f"{API_PREFIX}/all", methods=["POST", "GET"])
+@bp.route("/all", methods=["POST", "GET"])
 def fetch_all_lyrics():
     if request.method == "GET":
         data = request.args.to_dict()
@@ -486,13 +464,13 @@ def fetch_all_lyrics():
         data = request.get_json(silent=True) or {}
     else:
         return create_error_response("Method not allowed", 405)
-    app.logger.info(f"Fetching lyrics from all providers with data: {data}")
+    current_app.logger.info(f"Fetching lyrics from all providers with data: {data}")
 
     plugins = [ShazamLyricsPlugin, LrcLibLyricsPlugin, MusixMatchLyricsPlugin]
     results = {}
     for plugin_class in plugins:
         try:
-            plugin = plugin_class(data, to_screen=app.logger.info)
+            plugin = plugin_class(data, to_screen=current_app.logger.info)
             results[plugin_class.__name__] = {
                 "synced": plugin.get_synced(),
                 "unsynced": plugin.get_unsynced(),
@@ -502,7 +480,7 @@ def fetch_all_lyrics():
     return jsonify({"success": True, "results": results})
 
 
-@app.route(f"{API_PREFIX}/<path:plugin>", methods=["POST", "GET"])
+@bp.route("/<path:plugin>", methods=["POST", "GET"])
 def fetch_lyrics(plugin: str):
     plugin_map = {
         "shazam": ShazamLyricsPlugin,
@@ -518,9 +496,9 @@ def fetch_lyrics(plugin: str):
         data = request.get_json(silent=True) or {}
     else:
         return create_error_response("Method not allowed", 405)
-    app.logger.info(f"Fetching lyrics using {plugin_class.__name__} with data: {data}")
+    current_app.logger.info(f"Fetching lyrics using {plugin_class.__name__} with data: {data}")
     return get_lyrics_response(plugin_class, data)
 
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8001, debug=True)  # noqa: S201
+def register_routes(app: Flask):
+    app.register_blueprint(bp, url_prefix="/api/lyrics")

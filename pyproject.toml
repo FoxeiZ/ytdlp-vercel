@@ -22,7 +22,7 @@ dev = [
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
-include = ["monitor"]
+include = ["src"]
 exclude = ["**/__pycache__", ".venv", "**/node_modules", "**/.*", "venv"]
 pythonPlatform = "All"
 
@@ -48,7 +48,7 @@ reportUnnecessaryIsInstance = false
 line-length = 160
 indent-width = 4
 fix = true
-src = ["api"]
+src = ["src"]
 target-version = "py312"
 
 [tool.ruff.format]

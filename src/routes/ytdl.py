@@ -1,92 +1,42 @@
+from __future__ import annotations
+
 import collections
 import json
 import logging
-import os
 import re
 import uuid
-from collections.abc import Generator, Iterable, Mapping, MutableSet, Sequence
 from io import StringIO
-from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import requests
-from dotenv import find_dotenv, load_dotenv
-from flask import (
-    Flask,
-    Response,
-    jsonify,
-    redirect,
-    render_template,
-    request,
-    stream_with_context,
-    url_for,
-)
-from upstash_redis import Redis
+from flask import Blueprint, Flask, Response, current_app, jsonify, render_template, request, stream_with_context
 from upstash_redis.errors import UpstashError
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor.metadataparser import MetadataParserPP
 from yt_dlp.utils import DownloadError, ISO639Utils, variadic
 
+from src.extensions import redis_client
+from src.utils.general import str_to_bool
+
+if TYPE_CHECKING:
+    from collections.abc import Generator, Mapping, Sequence
+
+    from upstash_redis import Redis
+
+
+logger = logging.getLogger(__name__)
+bp = Blueprint("ytdl", __name__)
+
+__all__ = ("register_routes",)
+
+
 MAX_RESPONSE_SIZE = 1024 * 1024 * 4
 RANGE_CHUNK_SIZE = 1024 * 1024 * 3
 STREAM_CHUNK_SIZE = 1024 * 1024
 MAX_DOWNLOAD_FILESIZE = "200M"
-API_PREFIX = "/api/ytdl"
 # RESPONSE_CACHE_TTL_SECONDS = 7200
 URL_CACHE_TTL_SECONDS = 1800
 CHANGELOG_CACHE_TTL_SECONDS = 3600
-
-
-def str_to_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    return str(value).lower() in ("yes", "true", "t", "y", "1")
-
-
-load_dotenv()
-load_dotenv(find_dotenv(".env.local"))
-
-app = Flask(
-    __name__,
-    template_folder=Path(__file__).parent.parent / "templates",
-    static_folder=Path(__file__).parent.parent / "static",
-)
-
-formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s")
-app.logger.handlers[0].setFormatter(formatter)
-app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
-
-app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
-app.config["KV_REST_API_TOKEN"] = os.getenv("KV_REST_API_TOKEN", "")
-app.config["GITHUB_REPO"] = os.getenv("GITHUB_REPO", "")
-app.config["GITHUB_TOKEN"] = os.getenv("GITHUB_TOKEN", "")
-app.config["YTDL_OPTS"] = {
-    "color": "no_color",
-    "outtmpl": r"downloads/%(extractor)s-%(id)s-%(title)s.%(ext)s",
-    "restrictfilenames": True,
-    "nocheckcertificate": True,
-    "ignoreerrors": False,
-    "logtostderr": False,
-    "quiet": True,
-    "noplaylist": True,
-    "no_warnings": True,
-    "socket_timeout": 15,
-    "extract_flat": "in_playlist",
-    "source_address": "0.0.0.0",
-    "extractor_args": {"youtubepot-bgutilhttp": {"base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"}},
-    "allowed_extractors": ["^([yY].*?)([tT]).*e?$"],
-}
-
-try:
-    redis_client = Redis(
-        url=app.config["KV_REST_API_URL"],
-        token=app.config["KV_REST_API_TOKEN"],
-        allow_telemetry=False,
-    )
-    app.logger.info("Successfully connected to Redis.")
-except UpstashError as e:
-    app.logger.critical(f"Could not connect to Redis: {e}. Caching and cookie persistence will be disabled.")
-    redis_client = None
 
 
 class CookiesIOWrapper(StringIO):
@@ -99,59 +49,19 @@ class CookiesIOWrapper(StringIO):
                 cookies_result = self.redis_client.get(self.key)
                 if cookies_result:
                     initial_value = cookies_result
-                    app.logger.info("Successfully loaded cookies from Redis.")
+                    current_app.logger.info("Successfully loaded cookies from Redis.")
             except UpstashError as e:
-                app.logger.error(f"Redis GET error: {e}. Proceeding without persistent cookies.")
+                current_app.logger.error(f"Redis GET error: {e}. Proceeding without persistent cookies.")
         super().__init__(initial_value)
 
     def close(self):
         if self.redis_client:
             try:
                 self.redis_client.set(self.key, self.getvalue())
-                app.logger.info("Successfully saved cookies to Redis.")
+                current_app.logger.info("Successfully saved cookies to Redis.")
             except UpstashError as e:
-                app.logger.error(f"Redis SET error: {e}. Cookies may not have been saved.")
+                current_app.logger.error(f"Redis SET error: {e}. Cookies may not have been saved.")
         super().close()
-
-
-@app.template_global("classlist")
-class ClassList(MutableSet[str]):
-    def __init__(self, arg: str | Iterable[str] | None = None, *args: str):
-        classes: Iterable[str] = []
-        if isinstance(arg, str):
-            classes = arg.split()
-        elif isinstance(arg, Iterable):
-            classes = arg
-        elif arg is not None:
-            raise TypeError("expected a string or string iterable")
-        self.classes = set(filter(None, classes))
-        if args:
-            self.classes.update(args)
-
-    def __contains__(self, class_: object):
-        return class_ in self.classes
-
-    def __iter__(self):
-        return iter(self.classes)
-
-    def __len__(self):
-        return len(self.classes)
-
-    def add(self, *classes: str):  # type: ignore[override]
-        for class_ in classes:
-            self.classes.add(class_)
-        return ""
-
-    def discard(self, *classes: str):  # type: ignore[override]
-        for class_ in classes:
-            self.classes.discard(class_)
-        return ""
-
-    def __str__(self):
-        return " ".join(sorted(self.classes))
-
-    def __html__(self):
-        return f'class="{self}"' if self else ""
 
 
 def create_ytdl_extractor(
@@ -159,7 +69,7 @@ def create_ytdl_extractor(
     search_amount: int = 5,
     extra_opts: Mapping[str, Any] | None = None,
 ) -> YoutubeDL:
-    base_opts = app.config["YTDL_OPTS"].copy()
+    base_opts = current_app.config["YTDL_OPTS"].copy()
     config = {**base_opts, **(extra_opts or {})}
     search_prefixes = {
         "soundcloud": f"scsearch{search_amount}",
@@ -175,9 +85,9 @@ def create_ytdl_extractor(
 
 def create_error_response(message: str, code: int = 500, exc: Exception | None = None) -> tuple[Response, int]:
     if exc:
-        app.logger.error(f"Exception caught: {message}", exc_info=exc)
+        current_app.logger.error(f"Exception caught: {message}", exc_info=exc)
     else:
-        app.logger.warning(f"Returning error to client: {message} (Code: {code})")
+        current_app.logger.warning(f"Returning error to client: {message} (Code: {code})")
     if "No such format" in message or "Unsupported URL" in message:
         code = 404
     elif "Missing argument" in message or "Invalid" in message:
@@ -186,26 +96,26 @@ def create_error_response(message: str, code: int = 500, exc: Exception | None =
 
 
 def get_changelog_data() -> list[dict[str, Any]]:
-    if not redis_client or not app.config["GITHUB_REPO"] or not app.config["GITHUB_TOKEN"]:
-        app.logger.warning("Changelog disabled due to missing Redis or GitHub config.")
+    if not redis_client or not current_app.config["GITHUB_REPO"] or not current_app.config["GITHUB_TOKEN"]:
+        current_app.logger.warning("Changelog disabled due to missing Redis or GitHub config.")
         return []
 
     cache_key = "ytdl:changelog"
     try:
         cached_changelog = redis_client.get(cache_key)
         if cached_changelog:
-            app.logger.info("Changelog HIT from cache.")
+            current_app.logger.info("Changelog HIT from cache.")
             return json.loads(cached_changelog)
     except UpstashError as e:
-        app.logger.error(f"Redis changelog check failed: {e}.")
+        current_app.logger.error(f"Redis changelog check failed: {e}.")
 
-    app.logger.info("Changelog MISS from cache. Fetching from GitHub API.")
+    current_app.logger.info("Changelog MISS from cache. Fetching from GitHub API.")
     headers = {
-        "Authorization": f"token {app.config['GITHUB_TOKEN']}",
+        "Authorization": f"token {current_app.config['GITHUB_TOKEN']}",
         "Accept": "application/vnd.github.v3+json",
     }
-    url = f"https://api.github.com/repos/{app.config['GITHUB_REPO']}/pulls?state=closed&sort=updated&direction=desc&per_page=10"
-    app.logger.info(f"Fetching changelog from URL: {url}")
+    url = f"https://api.github.com/repos/{current_app.config['GITHUB_REPO']}/pulls?state=closed&sort=updated&direction=desc&per_page=10"
+    current_app.logger.info(f"Fetching changelog from URL: {url}")
 
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -227,10 +137,10 @@ def get_changelog_data() -> list[dict[str, Any]]:
                 )
 
         redis_client.set(cache_key, json.dumps(changelog), ex=CHANGELOG_CACHE_TTL_SECONDS)
-        app.logger.info("Successfully fetched and cached changelog from GitHub.")
+        current_app.logger.info("Successfully fetched and cached changelog from GitHub.")
         return changelog
     except requests.exceptions.RequestException as e:
-        app.logger.error(f"Failed to fetch changelog from GitHub: {e}")
+        current_app.logger.error(f"Failed to fetch changelog from GitHub: {e}")
         return []
 
 
@@ -298,24 +208,24 @@ def get_metadata_opts(info: Mapping[str, Any], compat_opts: Sequence[Any] | None
         stream_idx += stream_count
 
 
-@app.before_request
+@bp.before_request
 def log_request_info():
-    app.logger.info(f"Request: {request.method} {request.path}")
+    current_app.logger.info(f"Request: {request.method} {request.path}")
     if request.is_json and request.method == "POST":
-        app.logger.info(f"Request JSON payload: {request.get_json()}")
+        current_app.logger.info(f"Request JSON payload: {request.get_json()}")
 
 
-@app.route(API_PREFIX + "/")
+@bp.route("/")
 def index():
     return render_template("index.jinja2")
 
 
-@app.route(API_PREFIX + "/changelog")
+@bp.route("/changelog")
 def changelog():
     return jsonify(get_changelog_data())
 
 
-@app.route(API_PREFIX + "/check", methods=["POST"])
+@bp.route("/check", methods=["POST"])
 def check():
     data = cast("dict[str, Any] | None", request.get_json(silent=True))
     if not data:
@@ -330,11 +240,11 @@ def check():
             cache_key = f"ytdl:cache:{query}:{data.get('type')}:{data.get('has_ffmpeg')}:{data.get('format')}"
             cached_response = redis_client.get(cache_key)
             if cached_response and isinstance(cached_response, str):
-                app.logger.info(f"Cache HIT for key: {cache_key}")
+                current_app.logger.info(f"Cache HIT for key: {cache_key}")
                 return jsonify(json.loads(cached_response))
-            app.logger.info(f"Cache MISS for key: {cache_key}")
+            current_app.logger.info(f"Cache MISS for key: {cache_key}")
         except UpstashError as e:
-            app.logger.error(f"Redis cache check failed: {e}. Proceeding without cache.")
+            current_app.logger.error(f"Redis cache check failed: {e}. Proceeding without cache.")
 
     try:
         format_selector = _build_check_format_string(
@@ -466,7 +376,7 @@ def check():
             try:
                 pipe.exec()
             except UpstashError as e:
-                app.logger.error(f"Redis pipeline exec failed: {e}")
+                current_app.logger.error(f"Redis pipeline exec failed: {e}")
         ret_data["requestedFormats"] = req_formats
     else:
         url = info.get("url")
@@ -487,19 +397,19 @@ def check():
                 ret_data["needsConversion"] = True
                 ret_data["ext"] = target_ext
                 ret_data["sourceExt"] = actual_ext
-                app.logger.info(f"Audio conversion needed: from '{actual_ext}' to '{target_ext}'")
+                current_app.logger.info(f"Audio conversion needed: from '{actual_ext}' to '{target_ext}'")
 
     if redis_client and cache_key:
         try:
             redis_client.set(cache_key, json.dumps(ret_data), ex=URL_CACHE_TTL_SECONDS)
-            app.logger.info(f"Successfully cached response for key: {cache_key}")
+            current_app.logger.info(f"Successfully cached response for key: {cache_key}")
         except UpstashError as e:
-            app.logger.error(f"Redis cache set failed: {e}")
+            current_app.logger.error(f"Redis cache set failed: {e}")
 
     return jsonify(ret_data)
 
 
-@app.route(API_PREFIX + "/download")
+@bp.route("/download")
 def download():
     uid = request.args.get("id")
     if not uid:
@@ -513,7 +423,7 @@ def download():
     if not url:
         return create_error_response("Download link expired or invalid. Please try again.", 410)
     range_header = request.headers.get("Range", "bytes=0-")
-    app.logger.info(f"Handling range request for id '{uid}' with range: {range_header}")
+    current_app.logger.info(f"Handling range request for id '{uid}' with range: {range_header}")
     return _range_download_handler(url, range_header)
 
 
@@ -562,23 +472,5 @@ def _range_download_handler(url: str, range_header: str):
         return create_error_response(f"Failed to download content range: {e}", 502, exc=e)
 
 
-if __name__ == "__main__":
-
-    @app.route("/")
-    def index_redirect():
-        return redirect(url_for("index"))
-
-    @app.route("/api/lyrics/<path:subpath>", methods=["GET", "POST"])
-    def lyrics_redirect(subpath: str):
-        r = requests.get(f"http://127.0.0.1:8001/api/lyrics/{subpath}", timeout=5)
-        return Response(r.content, status=r.status_code, content_type=r.headers.get("Content-Type", "application/json"))
-
-    @app.after_request
-    def log_response_info(response: Response):
-        header = response.headers
-        header["Access-Control-Allow-Origin"] = "*"
-        header["Access-Control-Allow-Headers"] = "Origin, X-Requested-With, Content-Type, Accept, authorization"
-        header["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        return response
-
-    app.run(host="0.0.0.0", port=8000, debug=True)
+def register_routes(app: Flask):
+    app.register_blueprint(bp, url_prefix="/api/ytdl")
