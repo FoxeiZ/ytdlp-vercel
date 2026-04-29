@@ -1,5 +1,5 @@
 {
-  "javascript.validate.enable": true,
+  "js/ts.validate.enabled": true,
   // Add emmet tag autocomplete for jinja and django templates
   "emmet.includeLanguages": {
     "jinja2": "jinja-html",
@@ -36,7 +36,6 @@
     "H020"
   ],
   "python.analysis.autoImportCompletions": true,
-  "python.analysis.typeCheckingMode": "standard",
   "ruff.organizeImports": true,
   "editor.codeActionsOnSave": {
     "source.fixAll.ruff": "always",

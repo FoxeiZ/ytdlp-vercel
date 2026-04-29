@@ -1,200 +1,206 @@
 .modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  z-index: 999;
-  gap: var(--gap);
-  transition: opacity 0.2s ease-in-out, visibility 0s linear 0s;
+    position: fixed;
+    inset: 0;
+    background-color: rgba(8, 10, 12, 0.55);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 999;
+    gap: var(--gap);
+    transition: opacity 0.2s ease-in-out, visibility 0s linear 0s;
+    padding: 1.5rem;
 }
 
-.modal.hidden {
-  transition: opacity 0.2s ease-in-out, visibility 0s linear 0.2s;
-}
-
-@keyframes gradient-move {
-  0% {
-    background-position: 100% 50%
-  }
-
-  100% {
-    background-position: -33% 50%
-  }
-}
 
 .modal-title {
-  font-size: 2rem;
-  background-image: linear-gradient(200deg, #353535, #ff0000);
-  color: transparent;
-  background-clip: text;
-  font-weight: bold;
+    font-size: 1.4rem;
+    color: var(--color-primary);
+    font-weight: 700;
+    letter-spacing: 0.02em;
 }
 
 .modal-content {
-  background-color: var(--accent);
-  width: 50%;
-  height: 50%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  border-radius: 7px;
-  padding: var(--padding);
-  gap: var(--gap);
-  overflow-y: auto;
+    background-color: var(--color-surface);
+    width: 45%;
+    max-width: 720px;
+    max-height: min(70vh, 640px);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    border-radius: 20px;
+    padding: 1.2rem;
+    gap: 0.9rem;
+    overflow-y: auto;
+    border: 1px solid var(--color-outline-variant);
+    box-shadow: var(--elevation-2);
 }
 
-
 .modal-content::-webkit-scrollbar {
-  width: 4px;
+    width: 6px;
 }
 
 .modal-content::-webkit-scrollbar-thumb {
-  background: red;
-  border-radius: 10px;
+    background: var(--color-outline);
+    border-radius: 10px;
 }
 
 .modal-content::-webkit-scrollbar-thumb:hover {
-  background: #b30000;
+    background: var(--color-primary);
 }
 
 .toggle-modal-options,
 .input-modal-options {
-  --text: #ffffff;
-  --text-description: #9c9c9c;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 95%;
-  padding: 12px 0;
+    --text: var(--text-color);
+    --text-description: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.7rem 0;
+    gap: 1rem;
 }
 
 .toggle-modal-options {
-  --line: #ffffff;
-  --dot: #ffffff;
-  --circle: #434343;
-  --duration: 0.3s;
+    --line: var(--color-primary);
+    --dot: var(--color-primary);
+    --circle: var(--color-outline-variant);
+    --duration: 0.3s;
 }
 
 .modal-toggle-button {
-  cursor: pointer;
+    cursor: pointer;
 }
 
 .modal-toggle-button input {
-  display: none;
+    display: none;
 }
 
 .modal-toggle-button input+div {
-  position: relative;
+    position: relative;
 }
 
 .modal-toggle-button input+div:before,
 .modal-toggle-button input+div:after {
-  --s: 1;
-  content: "";
-  position: absolute;
-  height: 4px;
-  top: 10px;
-  width: 24px;
-  background: var(--line);
-  transform: scaleX(var(--s));
-  transition: transform var(--duration) ease;
+    --s: 1;
+    content: "";
+    position: absolute;
+    height: 4px;
+    top: 10px;
+    width: 24px;
+    background: var(--line);
+    transform: scaleX(var(--s));
+    transition: transform var(--duration) ease;
 }
 
 .modal-toggle-button input+div:before {
-  --s: 0;
-  left: 0;
-  transform-origin: 0 50%;
-  border-radius: 2px 0 0 2px;
+    --s: 0;
+    left: 0;
+    transform-origin: 0 50%;
+    border-radius: 2px 0 0 2px;
 }
 
 .modal-toggle-button input+div:after {
-  left: 28px;
-  transform-origin: 100% 50%;
-  border-radius: 0 2px 2px 0;
+    left: 28px;
+    transform-origin: 100% 50%;
+    border-radius: 0 2px 2px 0;
 }
 
 .modal-toggle-button input+div span {
-  padding-left: 56px;
-  line-height: 24px;
-  color: var(--text);
+    padding-left: 56px;
+    line-height: 24px;
+    color: var(--text);
 }
 
 .modal-toggle-button input+div span:before {
-  --x: 0;
-  --b: var(--circle);
-  --s: 4px;
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 var(--s) var(--b);
-  transform: translateX(var(--x));
-  transition: box-shadow var(--duration) ease, transform var(--duration) ease;
+    --x: 0;
+    --b: var(--circle);
+    --s: 4px;
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 var(--s) var(--b);
+    transform: translateX(var(--x));
+    transition: box-shadow var(--duration) ease, transform var(--duration) ease;
 }
 
 .modal-toggle-button input+div span:not(:empty) {
-  padding-left: 64px;
+    padding-left: 64px;
 }
 
 .modal-toggle-button input:checked+div:before {
-  --s: 1;
+    --s: 1;
 }
 
 .modal-toggle-button input:checked+div:after {
-  --s: 0;
+    --s: 0;
 }
 
 .modal-toggle-button input:checked+div span:before {
-  --x: 28px;
-  --s: 12px;
-  --b: var(--dot);
+    --x: 28px;
+    --s: 12px;
+    --b: var(--dot);
 }
 
 .toggle-modal-title,
 .input-modal-title {
-  color: var(--text);
+    color: var(--text);
+    font-weight: 600;
 }
 
 .toggle-modal-description,
 .input-modal-description {
-  max-width: 75%;
-  color: var(--text-description);
-  font-size: small;
+    max-width: 75%;
+    color: var(--text-description);
+    font-size: 0.8rem;
 }
 
 .input-modal-options input {
-  background: none;
-  border: 0;
-  border-bottom: 0.1rem solid rgb(110, 110, 110);
-  outline: none;
-  line-height: 24px;
-  transition: border-bottom-color 0.3s ease;
-  width: 40%;
+    background: var(--color-surface);
+    border: 1px solid var(--color-outline);
+    border-radius: 10px;
+    outline: none;
+    line-height: 24px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    width: 40%;
+    padding: 0.4rem 0.6rem;
+    color: var(--text-color);
 }
 
 .input-modal-options input:focus {
-  border-bottom-color: rgb(255, 255, 255);
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .input-modal-options select {
-  background-color: var(--accent-button);
-  color: var(--text-color);
-  border: 1px solid var(--disabled);
-  border-radius: 5px;
-  padding: 0.4rem;
-  width: 40%;
+    background-color: var(--color-surface-variant);
+    color: var(--text-color);
+    border: 1px solid var(--color-outline);
+    border-radius: 10px;
+    padding: 0.45rem 0.6rem;
+    width: 40%;
 }
 
 .input-modal-options select:focus {
-  outline: none;
-  border-color: var(--selected-hover);
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+@media (max-width: 600px) {
+
+    .toggle-modal-options,
+    .input-modal-options {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .input-modal-options input,
+    .input-modal-options select {
+        width: 100%;
+    }
 }

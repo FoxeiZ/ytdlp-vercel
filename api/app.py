@@ -1,3 +1,3 @@
-# ruff: noqa: F401
+from src import app
 
-from src.app import app
+__all__ = ["app"]

@@ -15,7 +15,7 @@ from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor.metadataparser import MetadataParserPP
 from yt_dlp.utils import DownloadError, ISO639Utils, variadic
 
-from src.extensions import redis_client
+from src.extensions import RedisWrapper
 from src.utils.general import str_to_bool
 
 if TYPE_CHECKING:
@@ -78,7 +78,7 @@ def create_ytdl_extractor(
     config["default_search"] = search_prefixes.get(provider, f"ytsearch{search_amount}")
     if provider == "ytmusic":
         config["playlist_items"] = f"1-{search_amount}"
-    cookies_io = CookiesIOWrapper(redis_client)
+    cookies_io = CookiesIOWrapper(RedisWrapper.get_client())
     config["cookiefile"] = cookies_io
     return YoutubeDL(config)  # pyright: ignore[reportArgumentType]
 
@@ -96,10 +96,12 @@ def create_error_response(message: str, code: int = 500, exc: Exception | None =
 
 
 def get_changelog_data() -> list[dict[str, Any]]:
-    if not redis_client or not current_app.config["GITHUB_REPO"] or not current_app.config["GITHUB_TOKEN"]:
+    if not RedisWrapper.is_initialised() or not current_app.config["GITHUB_REPO"] or not current_app.config["GITHUB_TOKEN"]:
         current_app.logger.warning("Changelog disabled due to missing Redis or GitHub config.")
         return []
 
+    redis_client = RedisWrapper.get_client()
+    assert redis_client is not None
     cache_key = "ytdl:changelog"
     try:
         cached_changelog = redis_client.get(cache_key)
@@ -235,6 +237,7 @@ def check():
         return create_error_response("Missing required argument: query", 400)
 
     cache_key = None
+    redis_client = RedisWrapper.get_client()
     if redis_client:
         try:
             cache_key = f"ytdl:cache:{query}:{data.get('type')}:{data.get('has_ffmpeg')}:{data.get('format')}"
@@ -415,6 +418,7 @@ def download():
     if not uid:
         return create_error_response("Missing required argument: id", 400)
     url = None
+    redis_client = RedisWrapper.get_client()
     if redis_client:
         try:
             url = redis_client.get(f"ytdl:url:{uid}")
