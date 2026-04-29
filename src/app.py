@@ -19,7 +19,11 @@ app = Flask(
 )
 
 formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s")
-app.logger.handlers[0].setFormatter(formatter)
+if not app.logger.handlers:
+    handler = logging.StreamHandler()
+    app.logger.addHandler(handler)
+for h in app.logger.handlers:
+    h.setFormatter(formatter)
 app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
 
 app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
