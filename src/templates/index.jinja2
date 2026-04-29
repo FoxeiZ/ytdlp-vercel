@@ -76,35 +76,37 @@
                 download
               </button-component>
             </div>
-            <div class="helper-row"
-                 x-show="downloadType === 'video'"
-                 x-transition:enter="helper-enter"
-                 x-transition:enter-start="helper-enter-from"
-                 x-transition:enter-end="helper-enter-to"
-                 x-transition:leave="helper-leave"
-                 x-transition:leave-start="helper-leave-from"
-                 x-transition:leave-end="helper-leave-to">
-              <template x-for="p in videoPresets" :key="p.value">
-                <span class="helper-chip helper-chip--interactive"
-                      :class="{ 'helper-chip--active': ytdlFormatVideo === p.value }"
-                      @click="ytdlFormatVideo = p.value"
-                      x-text="p.title"></span>
-              </template>
-            </div>
-            <div class="helper-row"
-                 x-show="downloadType === 'audio'"
-                 x-transition:enter="helper-enter"
-                 x-transition:enter-start="helper-enter-from"
-                 x-transition:enter-end="helper-enter-to"
-                 x-transition:leave="helper-leave"
-                 x-transition:leave-start="helper-leave-from"
-                 x-transition:leave-end="helper-leave-to">
-              <template x-for="p in audioPresets" :key="p.value">
-                <span class="helper-chip helper-chip--interactive"
-                      :class="{ 'helper-chip--active': ytdlFormatAudio === p.value }"
-                      @click="ytdlFormatAudio = p.value"
-                      x-text="p.title"></span>
-              </template>
+            <div class="helper-row-stack">
+              <div class="helper-row"
+                   x-show="downloadType === 'video'"
+                   x-transition:enter="helper-enter"
+                   x-transition:enter-start="helper-enter-from"
+                   x-transition:enter-end="helper-enter-to"
+                   x-transition:leave="helper-leave"
+                   x-transition:leave-start="helper-leave-from"
+                   x-transition:leave-end="helper-leave-to">
+                <template x-for="p in videoPresets" :key="p.value">
+                  <span class="helper-chip helper-chip--interactive"
+                        :class="{ 'helper-chip--active': ytdlFormatVideo === p.value }"
+                        @click="ytdlFormatVideo = p.value"
+                        x-text="p.title"></span>
+                </template>
+              </div>
+              <div class="helper-row"
+                   x-show="downloadType === 'audio'"
+                   x-transition:enter="helper-enter"
+                   x-transition:enter-start="helper-enter-from"
+                   x-transition:enter-end="helper-enter-to"
+                   x-transition:leave="helper-leave"
+                   x-transition:leave-start="helper-leave-from"
+                   x-transition:leave-end="helper-leave-to">
+                <template x-for="p in audioPresets" :key="p.value">
+                  <span class="helper-chip helper-chip--interactive"
+                        :class="{ 'helper-chip--active': ytdlFormatAudio === p.value }"
+                        @click="ytdlFormatAudio = p.value"
+                        x-text="p.title"></span>
+                </template>
+              </div>
             </div>
           </div>
         </section>
