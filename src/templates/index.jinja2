@@ -1,5 +1,3 @@
-{% from '_helpers.jinja2' import button, modal, toggle_modal_options, input_modal_options, tabs, select_modal_options with context %}
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -7,150 +5,273 @@
     <meta name="description" content="" />
     <meta name="keywords" content="" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>hewwo</title>
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/global.css') }}" />
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/modal.css') }}" />
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static',filename='styles/awm.css') }}" />
+    <title>ytdlp frontend</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles/global.css') }}" />
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles/modal.css') }}" />
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles/awm.css') }}" />
     <script src="{{ url_for('static', filename='scripts/dist/webpack.js') }}"></script>
     <script src="{{ url_for('static', filename='scripts/main.js') }}"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
   </head>
 
-  <body>
-    <header>
-      hewwo
-    </header>
-
-    <div id="main-toolbox">
-      <div id="logo-area">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/Youtube_Music_icon.svg/2048px-Youtube_Music_icon.svg.png"
-             alt="logo"
-             width="64"
-             height="64" />
-        <p>ytdlp frontend test</p>
-      </div>
-      <div id="download-area">
-        <input autocomplete="off" type="text" id="url-input" placeholder="https://www.youtube.com/watch?v=..." />
-        <div id="custom-button-area">
-          <div class="av-wrapper" data-value="video">
-            {{ button('video', selected=True, id='video-switch') }}
-            {{ button('audio', id='audio-switch') }}
+  <body x-cloak x-data="ytdlApp()">
+    <div class="page-shell">
+      <header class="app-bar">
+        <div class="app-bar__brand">
+          <div class="brand-mark">
+            <img src="{{ url_for('static', filename='images/youtube-music-logo.png') }}"
+                 alt="YouTube Music logo"
+                 width="40"
+                 height="40"
+                 class="brand-logo" />
           </div>
-          {{ button('download',
-                    id='download-button',
-                    outline=True) 
-          }}
+          <div class="brand-copy">
+            <div class="brand-title">ytdlp</div>
+            <div class="brand-subtitle">uhh, still don't know what to put here</div>
+          </div>
         </div>
-      </div>
+        <div class="app-bar__actions">
+          <button-component id="open-about-modal" class="btn btn--outlined box-outline" @click="modals.about = true">
+            about
+          </button-component>
+          <button-component id="open-donate-modal" class="btn btn--outlined box-outline" @click="modals.about = true">
+            donate
+          </button-component>
+          <button-component id="open-settings-modal" class="btn btn--outlined box-outline" @click="modals.settings = true">
+            settings
+          </button-component>
+        </div>
+      </header>
+
+      <main class="page-content">
+        <section id="main-toolbox" class="surface-card">
+          <div id="logo-area" class="hero">
+            <div class="hero-text">
+              <h1 class="hero-title">ytdlp frontend</h1>
+              <p class="hero-subtitle">Paste a link, pick a preset and start download.</p>
+            </div>
+          </div>
+          <div id="download-area">
+            <div class="field">
+              <input autocomplete="off"
+                     type="text"
+                     id="url-input"
+                     placeholder="https://www.youtube.com/watch?v=..."
+                     aria-describedby="url-support"
+                     x-model="url" />
+              <p class="field-support" id="url-support">
+                Works with standard YouTube links and playlists. More to come.
+              </p>
+            </div>
+            <div id="custom-button-area" class="action-row">
+              <div class="av-wrapper" aria-label="Download type">
+                <button-component id="video-switch" class="btn--segment" :class="{ 'selected': downloadType === 'video' }" @click="downloadType = 'video'">
+                  video
+                </button-component>
+                <button-component id="audio-switch" class="btn--segment" :class="{ 'selected': downloadType === 'audio' }" @click="downloadType = 'audio'">
+                  audio
+                </button-component>
+              </div>
+              <button-component id="download-button" class="btn btn--primary" :class="{ 'disabled': !isValidUrl || isDownloading, 'red': isError, 'no-opacity': noOpacity }" @click="handleSubmit()" x-text="downloadText">
+                download
+              </button-component>
+            </div>
+            <div class="helper-row-stack">
+              <div class="helper-row"
+                   x-show="downloadType === 'video'"
+                   x-transition:enter="helper-enter"
+                   x-transition:enter-start="helper-enter-from"
+                   x-transition:enter-end="helper-enter-to"
+                   x-transition:leave="helper-leave"
+                   x-transition:leave-start="helper-leave-from"
+                   x-transition:leave-end="helper-leave-to">
+                <template x-for="p in videoPresets" :key="p.value">
+                  <span class="helper-chip helper-chip--interactive"
+                        :class="{ 'helper-chip--active': ytdlFormatVideo === p.value }"
+                        @click="ytdlFormatVideo = p.value"
+                        x-text="p.title"></span>
+                </template>
+              </div>
+              <div class="helper-row"
+                   x-show="downloadType === 'audio'"
+                   x-transition:enter="helper-enter"
+                   x-transition:enter-start="helper-enter-from"
+                   x-transition:enter-end="helper-enter-to"
+                   x-transition:leave="helper-leave"
+                   x-transition:leave-start="helper-leave-from"
+                   x-transition:leave-end="helper-leave-to">
+                <template x-for="p in audioPresets" :key="p.value">
+                  <span class="helper-chip helper-chip--interactive"
+                        :class="{ 'helper-chip--active': ytdlFormatAudio === p.value }"
+                        @click="ytdlFormatAudio = p.value"
+                        x-text="p.title"></span>
+                </template>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="page-footer">
+        <div class="footer-note">No external UI libraries. Just HTML, CSS, and yt-dlp.</div>
+      </footer>
     </div>
 
-    {% call modal('settings', visible=False, id='settings-modal', content_width='45%') %}
-      {% call tabs('settings-tabs', ['yt-dlp', 'FFmpeg']) %}
-        <div class="tab-pane active">
-          {% set video_presets = [
-            {
-              "title": "Auto (1080p + Audio)",
-              "value": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]/b",
-              "description": "Recommended. Best video up to 1080p and best audio, requires FFmpeg."
-            },
-            {
-              "title": "Auto (Best Combined)",
-              "value": "best*[vcodec!=none][acodec!=none][height<=1080]",
-              "description": "Best format with both video and audio. Does not require FFmpeg."
-            },
-            {
-              "title": "MP4 (Video Only)",
-              "value": "bestvideo[ext=mp4]",
-              "description": "Highest quality MP4 video stream, likely no audio."
-            },
-            {
-              "title": "Custom",
-              "value": "custom",
-              "description": "Use a custom format string entered below."
-            }
-          ] %}
-          {% set audio_presets = [
-            {
-              "title": "Best Quality (M4A)",
-              "value": "m4a",
-              "description": "Highest quality AAC audio. Great for Apple devices."
-            },
-            {
-              "title": "High Compatibility (MP3)",
-              "value": "mp3",
-              "description": "Good quality, compatible with almost everything. Requires conversion if not available."
-            },
-            {
-              "title": "Best Quality (Opus)",
-              "value": "opus",
-              "description": "Excellent quality in a modern format. Requires conversion if not available."
-            },
-            {
-              "title": "Custom",
-              "value": "custom",
-              "description": "Use a custom format string entered below."
-            }
-          ] %}
-          <div id="format-selector-video">
-            {{ select_modal_options(title='Video Presets', input_id='ytdl-fsl-video', presets=video_presets) }}
+    <!-- settings modal -->
+    <div class="modal"
+         id="settings-modal"
+         x-show="modals.settings"
+         x-transition.opacity.duration.200ms
+         @click.self="modals.settings = false">
+      <p class="modal-title">settings</p>
+      <div class="modal-content">
+        <!-- tabs settings -->
+        <div class="tabs-container" id="settings-tabs">
+          <div class="tab-buttons">
+            <button class="tab-button" :class="{ 'active': settingsTab === 0 }" @click="settingsTab = 0">
+              yt-dlp
+            </button>
+            <button class="tab-button" :class="{ 'active': settingsTab === 1 }" @click="settingsTab = 1">
+              FFmpeg
+            </button>
           </div>
-          <div id="format-selector-audio" class="is-collapsed">
-            {{ select_modal_options(title='Audio Presets', input_id='ytdl-fsl-audio', presets=audio_presets) }}
-          </div>
-          <div id="custom-format-input-wrapper" class="is-collapsed">
-            {{ input_modal_options(title='Custom Format', input_id='ytdl-fsl-custom', description='Enter a custom yt-dlp format string.') }}
+          <div class="tab-content">
+            <!-- 0: yt-dlp config -->
+            <div class="tab-pane" :class="{ 'active': settingsTab === 0 }">
+              <!-- video presets -->
+              <div id="format-selector-video" x-show="downloadType === 'video'">
+                <div class="input-modal-options">
+                  <div class="input-modal-left">
+                    <div class="input-modal-title">Video Presets</div>
+                    <div class="input-modal-description" id="ytdl-fsl-video-desc" x-text="videoFormatDesc"></div>
+                  </div>
+                  <select id="ytdl-fsl-video" x-model="ytdlFormatVideo">
+                    <template x-for="p in videoPresets" :key="p.value">
+                      <option :value="p.value" x-text="p.title" :selected="p.value === ytdlFormatVideo"></option>
+                    </template>
+                  </select>
+                </div>
+              </div>
+              <!-- audio presets -->
+              <div id="format-selector-audio" x-show="downloadType === 'audio'">
+                <div class="input-modal-options">
+                  <div class="input-modal-left">
+                    <div class="input-modal-title">Audio Presets</div>
+                    <div class="input-modal-description" id="ytdl-fsl-audio-desc" x-text="audioFormatDesc"></div>
+                  </div>
+                  <select id="ytdl-fsl-audio" x-model="ytdlFormatAudio">
+                    <template x-for="p in audioPresets" :key="p.value">
+                      <option :value="p.value" x-text="p.title" :selected="p.value === ytdlFormatAudio"></option>
+                    </template>
+                  </select>
+                </div>
+              </div>
+              <!-- custom format input -->
+              <div id="custom-format-input-wrapper" x-show="showCustomFormat">
+                <div class="input-modal-options">
+                  <div class="input-modal-left">
+                    <div class="input-modal-title">Custom Format</div>
+                    <div class="input-modal-description">Enter a custom yt-dlp format string.</div>
+                  </div>
+                  <input id="ytdl-fsl-custom" type="text" x-model="ytdlFormatCustom" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 1: ffmpeg -->
+            <div class="tab-pane" :class="{ 'active': settingsTab === 1 }">
+              <!-- ffmpeg toggle -->
+              <div class="toggle-modal-options">
+                <div class="toggle-modal-left">
+                  <div class="toggle-modal-title">Use FFmpeg</div>
+                  <div class="toggle-modal-description">
+                    If enabled, allows merging separate video and audio streams for higher quality. Requires a bit more processing time.
+                  </div>
+                </div>
+                <label class="modal-toggle-button">
+                  <input id="use-ffmpeg" type="checkbox" x-model="useFfmpeg" />
+                  <div>
+                    <span></span>
+                  </div>
+                </label>
+              </div>
+              <!-- lyrics fetch toggle -->
+              <div class="toggle-modal-options">
+                <div class="toggle-modal-left">
+                  <div class="toggle-modal-title">Fetch Lyrics</div>
+                  <div class="toggle-modal-description">
+                    If enabled, attempts to fetch and embed lyrics into the downloaded file. Only works when FFmpeg is processing.
+                  </div>
+                </div>
+                <label class="modal-toggle-button">
+                  <input id="fetch-lyrics" type="checkbox" x-model="fetchLyrics" />
+                  <div>
+                    <span></span>
+                  </div>
+                </label>
+              </div>
+              <div id="lyrics-provider-wrapper" x-show="fetchLyrics">
+                <div class="input-modal-options">
+                  <div class="input-modal-left">
+                    <div class="input-modal-title">Lyrics Provider</div>
+                    <div class="input-modal-description" id="lyrics-provider-desc" x-text="lyricsProviderDesc"></div>
+                  </div>
+                  <select id="lyrics-provider" x-model="lyricsProvider">
+                    <template x-for="p in lyricsProviders" :key="p.value">
+                      <option :value="p.value" x-text="p.title" :selected="p.value === lyricsProvider"></option>
+                    </template>
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="tab-pane">
-          {{ toggle_modal_options(title='Use FFmpeg', input_id='use-ffmpeg', description='If enabled, allows merging separate video and audio streams for higher quality. Requires a bit more processing time.') }}
-          {{ toggle_modal_options(title='Fetch Lyrics', input_id='fetch-lyrics', description='If enabled, attempts to fetch and embed lyrics into the downloaded file. Only works when FFmpeg is processing.') }}
-          {% set lyrics_providers = [
-            {
-              "title": "Auto (Best Available)",
-              "value": "auto",
-              "description": "Automatically falls back to find the best synced/unsynced lyrics across all providers."
-            },
-            {
-              "title": "LrcLib",
-              "value": "lrclib",
-              "description": "Fetch LRC format lyrics from LrcLib."
-            },
-            {
-              "title": "Shazam",
-              "value": "shazam",
-              "description": "Scrape from Shazam."
-            },
-            {
-              "title": "MusixMatch",
-              "value": "musixmatch",
-              "description": "Scrape from MusixMatch."
-            }
-          ] %}
-          <div id="lyrics-provider-wrapper" class="is-collapsed">
-            {{ select_modal_options(title='Lyrics Provider', input_id='lyrics-provider', presets=lyrics_providers) }}
-          </div>
-        </div>
-      {% endcall %}
-
-    {% endcall %}
-
-    {% call modal('about', visible=False, id='about-modal') %}
-      <div class="about-content">
-        <h2>What is this thing?</h2>
-        <p>
-          So, you've stumbled upon this digital marvel. What does it do? Simple. It takes those pesky video URLs you throw at it and, through a series of questionable digital gymnastics and server-side sorcery, spits out a downloadable file. It's like a vending machine, but for pixels and sound waves. We bravely proxy your request, wrestle the file from the internet's grasp, and deliver it to you, all without you having to lift more than a finger. Magic? No. Just a whole lot of code and a sprinkle of optimism.
-        </p>
-        <hr>
-        <h2>Changelog</h2>
-        <ul class="changelog-list" id="changelog-list">
-          <li>Loading recent changes...</li>
-        </ul>
       </div>
-    {% endcall %}
+      <button-component class="js-modal-close" @click="modals.settings = false">
+        close
+      </button-component>
+    </div>
 
-    <footer>
-      {{ button('about', id='open-about-modal', outline=True) }}
-      {{ button('donate', id='open-donate-modal', outline=True) }}
-      {{ button('settings', id='open-settings-modal', outline=True) }}
-    </footer>
+    <div class="modal"
+         id="about-modal"
+         x-show="modals.about"
+         x-transition.opacity.duration.200ms
+         @click.self="modals.about = false">
+      <p class="modal-title">about</p>
+      <div class="modal-content">
+        <div class="about-content">
+          <h2>What is this thing?</h2>
+          <p>A very long-winded way of accessing yt-dlp. Nothing fancy, nothing malicious.</p>
+          <hr>
+          <h2>Why?</h2>
+          <p>Because I can. And because it's fun.</p>
+          <hr>
+          <h2>Disclaimer</h2>
+          <p>I am not responsible for any misuse of this tool. Please use it responsibly.</p>
+          <hr>
+          <h2>Changelog</h2>
+          <ul class="changelog-list" id="changelog-list">
+            <template x-if="changelogItems === null">
+              <li>Loading recent changes...</li>
+            </template>
+            <template x-if="changelogItems !== null && changelogItems.length === 0">
+              <li>No recent changes found.</li>
+            </template>
+            <template x-for="pr in (changelogItems || [])" :key="pr.url">
+              <li>
+                <a :href="pr.url" target="_blank" rel="noopener noreferrer">
+                  <strong x-text="pr.title"></strong>
+                </a>
+                <span>Merged on <span x-text="pr.merged_at"></span> by <a :href="pr.user_url" target="_blank" rel="noopener noreferrer" x-text="pr.user"></a></span>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </div>
+      <button-component class="js-modal-close" @click="modals.about = false">
+        close
+      </button-component>
+    </div>
+
   </body>
 </html>

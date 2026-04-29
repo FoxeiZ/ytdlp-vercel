@@ -4,14 +4,12 @@ from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
 from flask import Flask
-from upstash_redis import Redis
-from upstash_redis.errors import UpstashError
 
+from .extensions import RedisWrapper
 from .routes import register_all_routes
-from .utils.classlist import ClassList
 
 load_dotenv()
-load_dotenv(find_dotenv(".env.local"))
+load_dotenv(find_dotenv(".env.development.local"))
 
 
 app = Flask(
@@ -21,7 +19,11 @@ app = Flask(
 )
 
 formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s")
-app.logger.handlers[0].setFormatter(formatter)
+if not app.logger.handlers:
+    handler = logging.StreamHandler()
+    app.logger.addHandler(handler)
+for h in app.logger.handlers:
+    h.setFormatter(formatter)
 app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
 
 app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
@@ -46,15 +48,5 @@ app.config["YTDL_OPTS"] = {
 }
 
 register_all_routes(app)
-app.add_template_global(ClassList, name="classlist")
 with app.app_context():
-    try:
-        redis_client = Redis(
-            url=app.config["KV_REST_API_URL"],
-            token=app.config["KV_REST_API_TOKEN"],
-            allow_telemetry=False,
-        )
-        app.logger.info("Successfully connected to Redis.")
-    except UpstashError as e:
-        app.logger.critical(f"Could not connect to Redis: {e}. Caching and cookie persistence will be disabled.")
-        redis_client = None
+    RedisWrapper.from_app(app)

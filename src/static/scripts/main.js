@@ -80,659 +80,521 @@ function sanitizeFilename(name) {
   return sanitized;
 }
 
-const YtdlApp = {
-  config: {
+function ytdlApp() {
+  return {
+    // -- config ---------------------------------------------------------------
     API_BASE: "/api/ytdl",
     CHUNK_SIZE: 1024 * 1024 * 3,
-    verbose: true,
-  },
-  ui: {
-    urlInput: null,
-    downloadButton: null,
-    avWrapper: null,
-    videoSwitch: null,
-    audioSwitch: null,
-    useFfmpeg: null,
-    ytdlFormatVideo: null,
-    ytdlFormatAudio: null,
-    ytdlFormatCustom: null,
-    formatSelectorVideo: null,
-    formatSelectorAudio: null,
-    customFormatInputWrapper: null,
-  },
-  state: {
-    isDownloading: false,
-    useFfmpeg: false,
+
+    // -- reactive state -------------------------------------------------------
+    url: "",
     downloadType: "video",
+    useFfmpeg: false,
     ytdlFormatVideo: "",
     ytdlFormatAudio: "",
     ytdlFormatCustom: "",
     fetchLyrics: false,
     lyricsProvider: "auto",
-  },
 
-  init() {
-    Logger.verbose = this.config.verbose;
-    Logger.info("Application initializing...");
+    isDownloading: false,
+    downloadText: "download",
+    isError: false,
+    noOpacity: false,
 
-    this.loadState();
+    // modal state
+    modals: {
+      settings: false,
+      about: false,
+    },
 
-    Object.assign(this.ui, {
-      urlInput: document.getElementById("url-input"),
-      downloadButton: document.getElementById("download-button"),
-      avWrapper: document.getElementsByClassName("av-wrapper")[0],
-      videoSwitch: document.getElementById("video-switch"),
-      audioSwitch: document.getElementById("audio-switch"),
-      useFfmpeg: document.getElementById("use-ffmpeg"),
-      ytdlFormatVideo: document.getElementById("ytdl-fsl-video"),
-      ytdlFormatAudio: document.getElementById("ytdl-fsl-audio"),
-      ytdlFormatCustom: document.getElementById("ytdl-fsl-custom"),
-      formatSelectorVideo: document.getElementById("format-selector-video"),
-      formatSelectorAudio: document.getElementById("format-selector-audio"),
-      customFormatInputWrapper: document.getElementById(
-        "custom-format-input-wrapper"
-      ),
-      fetchLyrics: document.getElementById("fetch-lyrics"),
-      lyricsProvider: document.getElementById("lyrics-provider"),
-      lyricsProviderWrapper: document.getElementById("lyrics-provider-wrapper"),
-    });
+    // tabs
+    settingsTab: 0,
 
-    this._applyStateToUI();
+    // changelog
+    changelogItems: null, // null = loading, [] = empty, [...] = loaded
 
-    this.ui.downloadButton.addEventListener("click", () => this.handleSubmit());
-    this.ui.urlInput.addEventListener("input", () => this.checkInput());
-    this.ui.videoSwitch.addEventListener("click", () =>
-      this.setDownloadType("video")
-    );
-    this.ui.audioSwitch.addEventListener("click", () =>
-      this.setDownloadType("audio")
-    );
+    // preset data (defined inline so the template can iterate)
+    videoPresets: [
+      {
+        title: "Auto (1080p + Audio)",
+        value: "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080][ext=mp4]/b",
+        description: "Recommended. Best video up to 1080p and best audio, requires FFmpeg.",
+      },
+      {
+        title: "Auto (Best Combined)",
+        value: "best*[vcodec!=none][acodec!=none][height<=1080]",
+        description: "Best format with both video and audio. Does not require FFmpeg.",
+      },
+      {
+        title: "MP4 (Video Only)",
+        value: "bestvideo[ext=mp4]",
+        description: "Highest quality MP4 video stream, likely no audio.",
+      },
+      {
+        title: "Custom",
+        value: "custom",
+        description: "Use a custom format string entered below.",
+      },
+    ],
+    audioPresets: [
+      {
+        title: "Best Quality (M4A)",
+        value: "m4a",
+        description: "Highest quality AAC audio. Great for Apple devices.",
+      },
+      {
+        title: "High Compatibility (MP3)",
+        value: "mp3",
+        description: "Good quality, compatible with almost everything. Requires conversion if not available.",
+      },
+      {
+        title: "Best Quality (Opus)",
+        value: "opus",
+        description: "Excellent quality in a modern format. Requires conversion if not available.",
+      },
+      {
+        title: "Custom",
+        value: "custom",
+        description: "Use a custom format string entered below.",
+      },
+    ],
+    lyricsProviders: [
+      {
+        title: "Auto (Best Available)",
+        value: "auto",
+        description: "Automatically falls back to find the best synced/unsynced lyrics across all providers.",
+      },
+      {
+        title: "LrcLib",
+        value: "lrclib",
+        description: "Fetch LRC format lyrics from LrcLib.",
+      },
+      {
+        title: "Shazam",
+        value: "shazam",
+        description: "Scrape from Shazam.",
+      },
+      {
+        title: "MusixMatch",
+        value: "musixmatch",
+        description: "Scrape from MusixMatch.",
+      },
+    ],
 
-    document
-      .getElementById("open-settings-modal")
-      .addEventListener("click", () => this.toggleModal("settings-modal"));
-    document
-      .getElementById("open-about-modal")
-      .addEventListener("click", () => this.toggleModal("about-modal"));
-    document
-      .getElementById("open-donate-modal")
-      .addEventListener("click", () => this.toggleModal("about-modal"));
+    get isValidUrl() {
+      return isValidHttpUrl(this.url);
+    },
 
-    document.querySelectorAll(".js-modal-close").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        const modal = event.target.closest(".modal");
-        if (modal) this.toggleModal(modal.id);
-      });
-    });
+    get activeFormat() {
+      return this.downloadType === "video"
+        ? this.ytdlFormatVideo
+        : this.ytdlFormatAudio;
+    },
 
-    this.ui.useFfmpeg.addEventListener("change", (e) => {
-      this.state.useFfmpeg = e.target.checked;
-      Logger.info(`State updated: useFfmpeg is now ${this.state.useFfmpeg}`);
-      this.saveState();
-    });
+    get showCustomFormat() {
+      return this.activeFormat === "custom";
+    },
 
-    if (this.ui.fetchLyrics) {
-      this.ui.fetchLyrics.addEventListener("change", (e) => {
-        this.state.fetchLyrics = e.target.checked;
-        Logger.info(`State updated: fetchLyrics is now ${this.state.fetchLyrics}`);
-        this._setCollapsedState(this.ui.lyricsProviderWrapper, this.state.fetchLyrics);
-        this.saveState();
-      });
-    }
+    get videoFormatDesc() {
+      const preset = this.videoPresets.find(p => p.value === this.ytdlFormatVideo);
+      return preset ? preset.description : "";
+    },
 
-    if (this.ui.lyricsProvider) {
-      this.ui.lyricsProvider.addEventListener("change", (e) => {
-        this.state.lyricsProvider = e.target.value;
-        Logger.info(`State updated: lyricsProvider is now ${this.state.lyricsProvider}`);
-        updateDesc(this.ui.lyricsProvider);
-        this.saveState();
-      });
-    }
+    get audioFormatDesc() {
+      const preset = this.audioPresets.find(p => p.value === this.ytdlFormatAudio);
+      return preset ? preset.description : "";
+    },
 
-    const updateDesc = (selectElement) => {
-      if (!selectElement) return;
-      const selectedOption = selectElement.options[selectElement.selectedIndex];
-      if (selectedOption) {
-        document.getElementById(`${selectElement.id}-desc`).textContent =
-          selectedOption.getAttribute("data-desc");
-      }
-    };
+    get lyricsProviderDesc() {
+      const preset = this.lyricsProviders.find(p => p.value === this.lyricsProvider);
+      return preset ? preset.description : "";
+    },
 
-    const setupFormatListener = (selectElement, stateKey) => {
-      if (!selectElement) return;
-      selectElement.addEventListener("change", (e) => {
-        const selectedOption = e.target.options[e.target.selectedIndex];
-        this.state[stateKey] = selectedOption.value;
-        Logger.info(
-          `State updated: ${stateKey} is now ${this.state[stateKey]}`
-        );
-        updateDesc(selectElement);
-        this._updateCustomFormatVisibility();
-        this.saveState();
-      });
-    };
-    setupFormatListener(this.ui.ytdlFormatVideo, "ytdlFormatVideo");
-    setupFormatListener(this.ui.ytdlFormatAudio, "ytdlFormatAudio");
+    init() {
+      Logger.verbose = true;
+      Logger.info("Application initializing...");
 
-    this.ui.ytdlFormatCustom.addEventListener("input", (e) => {
-      this.state.ytdlFormatCustom = e.target.value;
-      this.saveState();
-    });
+      this._loadState();
 
-    document.querySelectorAll(".tabs-container").forEach((tabsContainer) => {
-      const tabButtons = tabsContainer.querySelectorAll(".tab-button");
-      const tabPanes = tabsContainer.querySelectorAll(".tab-pane");
-      tabButtons.forEach((button) => {
-        button.addEventListener("click", () => {
-          const tabIndex = button.getAttribute("data-tab");
-          tabButtons.forEach((btn) => btn.classList.remove("active"));
-          button.classList.add("active");
-          tabPanes.forEach((pane) => pane.classList.remove("active"));
-          tabPanes[tabIndex].classList.add("active");
-        });
-      });
-    });
+      // default value
+      if (!this.ytdlFormatVideo) this.ytdlFormatVideo = this.videoPresets[0].value;
+      if (!this.ytdlFormatAudio) this.ytdlFormatAudio = this.audioPresets[0].value;
 
-    Logger.info("Initialization complete.");
-
-    this.fetchChangelog();
-  },
-
-  saveState() {
-    const settingsToSave = {
-      useFfmpeg: this.state.useFfmpeg,
-      downloadType: this.state.downloadType,
-      ytdlFormatVideo: this.state.ytdlFormatVideo,
-      ytdlFormatAudio: this.state.ytdlFormatAudio,
-      ytdlFormatCustom: this.state.ytdlFormatCustom,
-      fetchLyrics: this.state.fetchLyrics,
-      lyricsProvider: this.state.lyricsProvider,
-    };
-    localStorage.setItem("ytdlAppSettings", JSON.stringify(settingsToSave));
-    Logger.log("Settings saved to localStorage.", settingsToSave);
-  },
-
-  loadState() {
-    const savedSettings = localStorage.getItem("ytdlAppSettings");
-    if (savedSettings) {
-      try {
-        const parsedSettings = JSON.parse(savedSettings);
-
-        const defaultState = {
-          ytdlFormatVideo: this.ui.ytdlFormatVideo?.value || "",
-          ytdlFormatAudio: this.ui.ytdlFormatAudio?.value || "",
-          fetchLyrics: false,
-          lyricsProvider: "auto",
-        };
-
-        Object.assign(this.state, defaultState, parsedSettings);
-        Logger.info("Settings loaded from localStorage.", this.state);
-      } catch (error) {
-        Logger.error("Failed to parse settings from localStorage.", error);
-      }
-    } else {
-      this.state.ytdlFormatVideo =
-        document.getElementById("ytdl-fsl-video")?.value || "";
-      this.state.ytdlFormatAudio =
-        document.getElementById("ytdl-fsl-audio")?.value || "";
-    }
-  },
-
-  _applyStateToUI() {
-    this.ui.useFfmpeg.checked = this.state.useFfmpeg;
-    this.ui.ytdlFormatVideo.value = this.state.ytdlFormatVideo;
-    this.ui.ytdlFormatAudio.value = this.state.ytdlFormatAudio;
-    this.ui.ytdlFormatCustom.value = this.state.ytdlFormatCustom;
-    if (this.ui.fetchLyrics) {
-      this.ui.fetchLyrics.checked = this.state.fetchLyrics;
-    }
-    if (this.ui.lyricsProvider) {
-      this.ui.lyricsProvider.value = this.state.lyricsProvider;
-    }
-
-    const updateDesc = (selectElement) => {
-      if (!selectElement) return;
-      const selectedOption = selectElement.options[selectElement.selectedIndex];
-      if (selectedOption) {
-        document.getElementById(`${selectElement.id}-desc`).textContent =
-          selectedOption.getAttribute("data-desc");
-      }
-    };
-    updateDesc(this.ui.ytdlFormatVideo);
-    updateDesc(this.ui.ytdlFormatAudio);
-    updateDesc(this.ui.lyricsProvider);
-
-    this._setCollapsedState(this.ui.lyricsProviderWrapper, this.state.fetchLyrics);
-
-    this.setDownloadType(this.state.downloadType, false);
-    Logger.log("UI updated to reflect loaded state.");
-  },
-
-  async updateDownloadText(
-    text,
-    options = { animation: true, isError: false }
-  ) {
-    Logger.log(`Updating download text to: "${text}"`, options);
-    const { animation, isError } = options;
-    if (animation) {
-      this.ui.downloadButton.classList.add("no-opacity");
-      await sleep(200);
-    }
-    this.ui.downloadButton.classList.remove("red", "no-opacity");
-    if (isError) this.ui.downloadButton.classList.add("red");
-    this.ui.downloadButton.innerHTML = text;
-  },
-
-  toggleModal(modalId) {
-    Logger.log(`Toggling modal: ${modalId}`);
-    const modal = document.getElementById(modalId);
-    if (modal) {
-      modal.classList.toggle("hidden");
-    } else {
-      Logger.warn(`Modal with ID "${modalId}" not found.`);
-    }
-  },
-
-  async handleSubmit() {
-    if (this.state.isDownloading) {
-      Logger.warn("Download already in progress. handleSubmit aborted.");
-      return;
-    }
-
-    Logger.info("handleSubmit triggered.");
-    this.state.isDownloading = true;
-    this.ui.downloadButton.classList.add("disabled");
-
-    try {
-      await this.processUrl(this.ui.urlInput.value);
-      Logger.info("Processing finished successfully.");
-    } catch (error) {
-      Logger.error("An unexpected error occurred in handleSubmit:", error);
-      this.updateDownloadText(error.message || "Client error", {
-        isError: true,
-        animation: true,
-      });
-    } finally {
-      await sleep(2000);
-      this.updateDownloadText("download", { animation: true });
-      this.state.isDownloading = false;
-      this.checkInput();
-      Logger.info("handleSubmit finished, UI reset.");
-    }
-  },
-
-  async processUrl(url) {
-    if (!isValidHttpUrl(url)) throw new Error("Invalid URL");
-    Logger.log(`Starting to process URL: ${url}`);
-    await this.updateDownloadText("checking...");
-
-    const downloadType = this.ui.avWrapper.getAttribute("data-value");
-    let formatString =
-      downloadType === "video"
-        ? this.state.ytdlFormatVideo
-        : this.state.ytdlFormatAudio;
-    if (formatString === "custom") {
-      formatString = this.state.ytdlFormatCustom;
-    }
-
-    const checkPayload = {
-      query: url,
-      type: downloadType,
-      has_ffmpeg: this.state.useFfmpeg,
-      format: formatString,
-    };
-    Logger.log(
-      "Sending request to /check endpoint with payload:",
-      checkPayload
-    );
-
-    const response = await fetch(`${this.config.API_BASE}/check`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(checkPayload),
-    });
-    const data = await response.json();
-    Logger.info("Received response from /check:", data);
-    if (!response.ok) {
-      window.WP_notifier.warning(data.error);
-      throw new Error(data.error);
-    }
-
-    if (data.needFFmpeg) {
-      Logger.info("Path selected: FFmpeg remuxing.");
-      if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
-      await this.ffmpegDownload(data);
-    } else if (data.needsConversion) {
-      Logger.info("Path selected: Audio conversion.");
-      if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
-      await this.convertAudio(data);
-    } else {
-      const sanitizedFilename = sanitizeFilename(`${data.title}.${data.ext}`);
-      Logger.info("Path selected: Ranged download.");
-      const blob = await this._fetchFile(data);
-      saveAs(blob, sanitizedFilename);
-    }
-  },
-
-  async _fetchFile(formatData) {
-    const { id, fileSizeApprox, type } = formatData;
-    Logger.log(
-      `Fetching file for format type "${type || "N/A"}" using id: ${id}`,
-      formatData
-    );
-    const downloadUrl = `${this.config.API_BASE}/download?id=${id}`;
-
-    if (!fileSizeApprox || fileSizeApprox <= 0) {
-      Logger.warn(
-        "fileSizeApprox is unknown. Attempting a single direct fetch."
-      );
-      await this.updateDownloadText(`downloading ${type || ""}...`);
-      const response = await fetch(downloadUrl);
-      if (!response.ok)
-        throw new Error(
-          `Download failed: ${response.status} ${await response.text()}`
-        );
-      return response.blob();
-    }
-
-    Logger.log("Fetching file using ranged requests.");
-    const chunks = [];
-    let downloadedBytes = 0;
-    while (downloadedBytes < fileSizeApprox) {
-      const start = downloadedBytes;
-      const end = Math.min(
-        start + this.config.CHUNK_SIZE - 1,
-        fileSizeApprox - 1
-      );
-
-      Logger.log(`Fetching chunk: bytes=${start}-${end}`);
-      await this.updateDownloadText(
-        `downloading ${type || ""}... ${humanFileSize(start)}/${humanFileSize(
-          fileSizeApprox
-        )}`,
-        { animation: false }
-      );
-
-      const rangeResponse = await fetch(downloadUrl, {
-        headers: { Range: `bytes=${start}-${end}` },
-      });
-      if (rangeResponse.status !== 206)
-        throw new Error(
-          `Server error on range request: ${rangeResponse.status}`
-        );
-
-      const chunk = await rangeResponse.arrayBuffer();
-      chunks.push(chunk);
-      downloadedBytes += chunk.byteLength;
-      Logger.log(
-        `Chunk received. Size: ${chunk.byteLength}. Total downloaded: ${downloadedBytes}`
-      );
-    }
-
-    const blob = new Blob(chunks, { type: "application/octet-stream" });
-    Logger.info(`All chunks received. Final blob size: ${blob.size}`);
-    return blob;
-  },
-
-  async fetchAndEmbedLyrics(data, metadataParams) {
-    if (!this.state.fetchLyrics) return;
-
-    const { title, artist, album } = data;
-
-    if (title) {
-      Logger.info(`Fetching lyrics for: ${title} - ${artist}`);
-      await this.updateDownloadText(`fetching lyrics...`);
-      try {
-        const endpoint = this.state.lyricsProvider === "auto"
-          ? "/api/lyrics/all"
-          : `/api/lyrics/${this.state.lyricsProvider}`;
-
-        const resp = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, artist, album })
-        });
-
-        if (resp.ok) {
-          const data = await resp.json();
-          let lyrics = null;
-
-          if (this.state.lyricsProvider === "auto") {
-            if (data.success && data.results) {
-              const res = data.results;
-              if (res.LrcLibLyricsPlugin?.synced) lyrics = res.LrcLibLyricsPlugin.synced;
-              else if (res.ShazamLyricsPlugin?.synced) lyrics = res.ShazamLyricsPlugin.synced;
-              else if (res.MusixMatchLyricsPlugin?.synced) lyrics = res.MusixMatchLyricsPlugin.synced;
-              else if (res.LrcLibLyricsPlugin?.unsynced) lyrics = res.LrcLibLyricsPlugin.unsynced;
-              else if (res.ShazamLyricsPlugin?.unsynced) lyrics = res.ShazamLyricsPlugin.unsynced;
-              else if (res.MusixMatchLyricsPlugin?.unsynced) lyrics = res.MusixMatchLyricsPlugin.unsynced;
-            }
-          } else {
-            if (data.success) {
-              lyrics = data.synced || data.unsynced;
-            }
-          }
-
-          if (lyrics) {
-            Logger.info("Found lyrics! Embedding into metadata.");
-            metadataParams.push("-metadata", `lyrics=${lyrics}`);
-          } else {
-            Logger.info("No lyrics found from the selected provider(s).");
-          }
-        }
-      } catch (e) {
-        Logger.error("Failed to fetch lyrics", e);
-      }
-    }
-  },
-
-  async convertAudio(data) {
-    Logger.info("Starting audio conversion process.");
-    const ffmpeg = window.WP_ffmpeg;
-    const inputFilename = `input.${data.sourceExt}`;
-    const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
-
-    try {
-      const fileBlob = await this._fetchFile(data);
-      const fileBuffer = await fileBlob.arrayBuffer();
-
-      Logger.log(`Writing source audio to virtual FS as "${inputFilename}"`);
-      await ffmpeg.writeFile(inputFilename, new Uint8Array(fileBuffer));
-
-      let metadataParams = data.metadata ? data.metadata.flat() : [];
-      await this.fetchAndEmbedLyrics(data, metadataParams);
-
-      await this.updateDownloadText(`converting to ${data.ext}...`);
-      const execParams = [
-        "-i",
-        inputFilename,
-        ...metadataParams,
-        outputFilename,
+      // auto save these states on change
+      const watchKeys = [
+        "downloadType", "useFfmpeg",
+        "ytdlFormatVideo", "ytdlFormatAudio", "ytdlFormatCustom",
+        "fetchLyrics", "lyricsProvider",
       ];
-      Logger.info(
-        "Executing FFmpeg command:",
-        `ffmpeg ${execParams.join(" ")}`
-      );
-      await ffmpeg.exec(execParams);
-      Logger.info("FFmpeg conversion complete.");
-
-      const convertedData = await ffmpeg.readFile(outputFilename);
-      Logger.log(
-        `Reading converted file from virtual FS. Size: ${convertedData.length}`
-      );
-      const blob = new Blob([convertedData], { type: `audio/${data.ext}` });
-      saveAs(blob, outputFilename);
-    } finally {
-      await this.updateDownloadText(`cleaning up...`);
-      try {
-        await ffmpeg.deleteFile(inputFilename);
-        await ffmpeg.deleteFile(outputFilename);
-        Logger.log("Cleaned up FFmpeg virtual files.");
-      } catch (e) {
-        Logger.warn(`Could not delete temp files`, e);
-      }
-    }
-  },
-
-  async ffmpegDownload(data) {
-    Logger.info("Starting FFmpeg download process.");
-    const ffmpeg = window.WP_ffmpeg;
-    const filesToDelete = [];
-    const remuxParams = {};
-
-    try {
-      Logger.info(
-        `Starting concurrent download of ${data.requestedFormats.length} streams.`
-      );
-
-      await this.updateDownloadText(`downloading streams...`);
-      const downloadPromises = data.requestedFormats.map(async (format) => {
-        Logger.log(`[Concurrent] Preparing to download format: ${format.type}`);
-        const fileBlob = await this._fetchFile(format);
-        const fileBuffer = await fileBlob.arrayBuffer();
-        const safeInputName = sanitizeFilename(
-          `${format.formatId}.${format.ext}`
-        );
-        filesToDelete.push(safeInputName);
-        Logger.log(
-          `[Concurrent] Writing ${format.type} data to virtual FS as "${safeInputName}"`
-        );
-
-        await ffmpeg.writeFile(safeInputName, new Uint8Array(fileBuffer));
-        remuxParams[`${format.type}Name`] = safeInputName;
-        Logger.log(
-          `[Concurrent] Finished writing "${safeInputName}" to virtual FS.`
-        );
+      watchKeys.forEach(key => {
+        this.$watch(key, () => this._saveState());
       });
 
-      await Promise.all(downloadPromises);
-      Logger.info(
-        "All streams have been downloaded and written to the virtual FS."
-      );
+      Logger.info("Initialization complete.");
+      this.fetchChangelog();
+    },
 
-      let metadataParams = data.metadata ? data.metadata.flat() : [];
-      await this.fetchAndEmbedLyrics(data, metadataParams);
+    _saveState() {
+      const settings = {
+        useFfmpeg: this.useFfmpeg,
+        downloadType: this.downloadType,
+        ytdlFormatVideo: this.ytdlFormatVideo,
+        ytdlFormatAudio: this.ytdlFormatAudio,
+        ytdlFormatCustom: this.ytdlFormatCustom,
+        fetchLyrics: this.fetchLyrics,
+        lyricsProvider: this.lyricsProvider,
+      };
+      localStorage.setItem("ytdlAppSettings", JSON.stringify(settings));
+      Logger.log("Settings saved to localStorage.", settings);
+    },
 
-      await this.updateDownloadText("merging...");
-      const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
-      filesToDelete.push(outputFilename);
-      const execParams = [
-        "-i",
-        remuxParams.videoName,
-        "-i",
-        remuxParams.audioName,
-        ...metadataParams,
-        "-c:v",
-        "copy",
-        "-c:a",
-        "copy",
-        outputFilename,
-      ];
-      Logger.info(
-        "Executing FFmpeg command:",
-        `ffmpeg ${execParams.join(" ")}`
-      );
-      await ffmpeg.exec(execParams);
-      Logger.info("FFmpeg execution complete.");
-
-      const mergedData = await ffmpeg.readFile(outputFilename);
-      Logger.log(
-        `Reading merged file from virtual FS. Size: ${mergedData.length}`
-      );
-      const blob = new Blob([mergedData], { type: `video/${data.ext}` });
-      saveAs(blob, outputFilename);
-    } finally {
-      await this.updateDownloadText(`cleaning up...`);
-      Logger.log("Cleaning up FFmpeg virtual files:", filesToDelete);
-      for (const file of filesToDelete) {
-        try {
-          await ffmpeg.deleteFile(file);
-          Logger.log(`Deleted temp file: ${file}`);
-        } catch (e) {
-          Logger.warn(`Could not delete temp file: ${file}`, e);
-        }
+    _loadState() {
+      const raw = localStorage.getItem("ytdlAppSettings");
+      if (!raw) return;
+      try {
+        const s = JSON.parse(raw);
+        if (s.useFfmpeg !== undefined) this.useFfmpeg = s.useFfmpeg;
+        if (s.downloadType) this.downloadType = s.downloadType;
+        if (s.ytdlFormatVideo) this.ytdlFormatVideo = s.ytdlFormatVideo;
+        if (s.ytdlFormatAudio) this.ytdlFormatAudio = s.ytdlFormatAudio;
+        if (s.ytdlFormatCustom !== undefined) this.ytdlFormatCustom = s.ytdlFormatCustom;
+        if (s.fetchLyrics !== undefined) this.fetchLyrics = s.fetchLyrics;
+        if (s.lyricsProvider) this.lyricsProvider = s.lyricsProvider;
+        Logger.info("Settings loaded from localStorage.", s);
+      } catch (e) {
+        Logger.error("Failed to parse settings from localStorage.", e);
       }
-    }
-  },
+    },
 
-  checkInput() {
-    const isValid = isValidHttpUrl(this.ui.urlInput.value);
-    if (isValid && !this.state.isDownloading)
-      this.ui.downloadButton.classList.remove("disabled");
-    else this.ui.downloadButton.classList.add("disabled");
-  },
+    async updateDownloadText(text, { animation = true, isError = false } = {}) {
+      Logger.log(`Updating download text to: "${text}"`, { animation, isError });
+      if (animation) {
+        this.noOpacity = true;
+        await sleep(200);
+      }
+      this.noOpacity = false;
+      this.isError = isError;
+      this.downloadText = text;
+    },
 
-  _updateFormatSelectorVisibility() {
-    const downloadType = this.state.downloadType;
-    const isVideo = downloadType === "video";
-    this._setCollapsedState(this.ui.formatSelectorVideo, isVideo);
-    this._setCollapsedState(this.ui.formatSelectorAudio, !isVideo);
-    this._updateCustomFormatVisibility();
-  },
-
-  _updateCustomFormatVisibility() {
-    const downloadType = this.state.downloadType;
-    const currentFormat =
-      downloadType === "video"
-        ? this.state.ytdlFormatVideo
-        : this.state.ytdlFormatAudio;
-    this._setCollapsedState(this.ui.customFormatInputWrapper, currentFormat === "custom");
-  },
-
-  _setCollapsedState(element, isVisible) {
-    if (!element) return;
-
-    if (isVisible) {
-      element.classList.remove("is-collapsed");
-    } else {
-      element.classList.add("is-collapsed");
-    }
-  },
-
-  setDownloadType(type, save = true) {
-    Logger.log(`Setting download type to: ${type}`);
-    this.ui.avWrapper.setAttribute("data-value", type);
-    if (type === "video") {
-      this.ui.videoSwitch.classList.add("selected");
-      this.ui.audioSwitch.classList.remove("selected");
-    } else {
-      this.ui.audioSwitch.classList.add("selected");
-      this.ui.videoSwitch.classList.remove("selected");
-    }
-    this.state.downloadType = type;
-    this._updateFormatSelectorVisibility();
-    if (save) {
-      this.saveState();
-    }
-  },
-
-  async fetchChangelog() {
-    const listElement = document.getElementById("changelog-list");
-    if (!listElement) return;
-
-    try {
-      const response = await fetch(`${this.config.API_BASE}/changelog`);
-      if (!response.ok) throw new Error("Network response was not ok");
-      const prs = await response.json();
-
-      if (prs.length === 0) {
-        listElement.innerHTML = "<li>No recent changes found.</li>";
+    async handleSubmit() {
+      if (this.isDownloading) {
+        Logger.warn("Download already in progress. handleSubmit aborted.");
         return;
       }
 
-      listElement.innerHTML = prs.map(pr => `
-        <li>
-          <a href="${pr.url}" target="_blank" rel="noopener noreferrer">
-            <strong>${pr.title}</strong>
-          </a>
-          <span>Merged on ${pr.merged_at} by <a href="${pr.user_url}" target="_blank" rel="noopener noreferrer">${pr.user}</a></span>
-        </li>
-      `).join('');
-    } catch (error) {
-      Logger.error("Failed to fetch changelog:", error);
-      listElement.innerHTML = "<li>Could not load recent changes. Probably for the best.</li>";
-    }
-  },
-};
+      Logger.info("handleSubmit triggered.");
+      this.isDownloading = true;
 
-document.addEventListener("DOMContentLoaded", () => YtdlApp.init());
+      try {
+        await this.processUrl(this.url);
+        Logger.info("Processing finished successfully.");
+      } catch (error) {
+        Logger.error("An unexpected error occurred in handleSubmit:", error);
+        this.updateDownloadText(error.message || "Client error", {
+          isError: true,
+          animation: true,
+        });
+      } finally {
+        await sleep(2000);
+        this.updateDownloadText("download", { animation: true });
+        this.isDownloading = false;
+        Logger.info("handleSubmit finished, UI reset.");
+      }
+    },
+
+    async processUrl(url) {
+      if (!isValidHttpUrl(url)) throw new Error("Invalid URL");
+      Logger.log(`Starting to process URL: ${url}`);
+      await this.updateDownloadText("checking...");
+
+      let formatString = this.activeFormat;
+      if (formatString === "custom") {
+        formatString = this.ytdlFormatCustom;
+      }
+
+      const checkPayload = {
+        query: url,
+        type: this.downloadType,
+        has_ffmpeg: this.useFfmpeg,
+        format: formatString,
+      };
+      Logger.log("Sending request to /check endpoint with payload:", checkPayload);
+
+      const response = await fetch(`${this.API_BASE}/check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(checkPayload),
+      });
+      const data = await response.json();
+      Logger.info("Received response from /check:", data);
+      if (!response.ok) {
+        window.WP_notifier.warning(data.error);
+        throw new Error(data.error);
+      }
+
+      if (data.needFFmpeg) {
+        Logger.info("Path selected: FFmpeg remuxing.");
+        if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
+        await this.ffmpegDownload(data);
+      } else if (data.needsConversion) {
+        Logger.info("Path selected: Audio conversion.");
+        if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
+        await this.convertAudio(data);
+      } else {
+        const sanitizedFilename = sanitizeFilename(`${data.title}.${data.ext}`);
+        Logger.info("Path selected: Ranged download.");
+        const blob = await this._fetchFile(data);
+        saveAs(blob, sanitizedFilename);
+      }
+    },
+
+    async _fetchFile(formatData) {
+      const { id, fileSizeApprox, type } = formatData;
+      Logger.log(
+        `Fetching file for format type "${type || "N/A"}" using id: ${id}`,
+        formatData
+      );
+      const downloadUrl = `${this.API_BASE}/download?id=${id}`;
+
+      if (!fileSizeApprox || fileSizeApprox <= 0) {
+        Logger.warn("fileSizeApprox is unknown. Attempting a single direct fetch.");
+        await this.updateDownloadText(`downloading ${type || ""}...`);
+        const response = await fetch(downloadUrl);
+        if (!response.ok)
+          throw new Error(
+            `Download failed: ${response.status} ${await response.text()}`
+          );
+        return response.blob();
+      }
+
+      Logger.log("Fetching file using ranged requests.");
+      const chunks = [];
+      let downloadedBytes = 0;
+      while (downloadedBytes < fileSizeApprox) {
+        const start = downloadedBytes;
+        const end = Math.min(
+          start + this.CHUNK_SIZE - 1,
+          fileSizeApprox - 1
+        );
+
+        Logger.log(`Fetching chunk: bytes=${start}-${end}`);
+        await this.updateDownloadText(
+          `downloading ${type || ""}... ${humanFileSize(start)}/${humanFileSize(fileSizeApprox)}`,
+          { animation: false }
+        );
+
+        const rangeResponse = await fetch(downloadUrl, {
+          headers: { Range: `bytes=${start}-${end}` },
+        });
+        if (rangeResponse.status !== 206)
+          throw new Error(
+            `Server error on range request: ${rangeResponse.status}`
+          );
+
+        const chunk = await rangeResponse.arrayBuffer();
+        chunks.push(chunk);
+        downloadedBytes += chunk.byteLength;
+        Logger.log(
+          `Chunk received. Size: ${chunk.byteLength}. Total downloaded: ${downloadedBytes}`
+        );
+      }
+
+      const blob = new Blob(chunks, { type: "application/octet-stream" });
+      Logger.info(`All chunks received. Final blob size: ${blob.size}`);
+      return blob;
+    },
+
+    async fetchAndEmbedLyrics(data, metadataParams) {
+      if (!this.fetchLyrics) return;
+
+      const { title, artist, album } = data;
+
+      if (title) {
+        Logger.info(`Fetching lyrics for: ${title} - ${artist}`);
+        await this.updateDownloadText(`fetching lyrics...`);
+        try {
+          const endpoint = this.lyricsProvider === "auto"
+            ? "/api/lyrics/all"
+            : `/api/lyrics/${this.lyricsProvider}`;
+
+          const resp = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, artist, album })
+          });
+
+          if (resp.ok) {
+            const data = await resp.json();
+            let lyrics = null;
+
+            if (this.lyricsProvider === "auto") {
+              if (data.success && data.results) {
+                const res = data.results;
+                if (res.LrcLibLyricsPlugin?.synced) lyrics = res.LrcLibLyricsPlugin.synced;
+                else if (res.ShazamLyricsPlugin?.synced) lyrics = res.ShazamLyricsPlugin.synced;
+                else if (res.MusixMatchLyricsPlugin?.synced) lyrics = res.MusixMatchLyricsPlugin.synced;
+                else if (res.LrcLibLyricsPlugin?.unsynced) lyrics = res.LrcLibLyricsPlugin.unsynced;
+                else if (res.ShazamLyricsPlugin?.unsynced) lyrics = res.ShazamLyricsPlugin.unsynced;
+                else if (res.MusixMatchLyricsPlugin?.unsynced) lyrics = res.MusixMatchLyricsPlugin.unsynced;
+              }
+            } else {
+              if (data.success) {
+                lyrics = data.synced || data.unsynced;
+              }
+            }
+
+            if (lyrics) {
+              Logger.info("Found lyrics! Embedding into metadata.");
+              metadataParams.push("-metadata", `lyrics=${lyrics}`);
+            } else {
+              Logger.info("No lyrics found from the selected provider(s).");
+            }
+          }
+        } catch (e) {
+          Logger.error("Failed to fetch lyrics", e);
+        }
+      }
+    },
+
+    async convertAudio(data) {
+      Logger.info("Starting audio conversion process.");
+      const ffmpeg = window.WP_ffmpeg;
+      const inputFilename = `input.${data.sourceExt}`;
+      const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
+
+      try {
+        const fileBlob = await this._fetchFile(data);
+        const fileBuffer = await fileBlob.arrayBuffer();
+
+        Logger.log(`Writing source audio to virtual FS as "${inputFilename}"`);
+        await ffmpeg.writeFile(inputFilename, new Uint8Array(fileBuffer));
+
+        let metadataParams = data.metadata ? data.metadata.flat() : [];
+        await this.fetchAndEmbedLyrics(data, metadataParams);
+
+        await this.updateDownloadText(`converting to ${data.ext}...`);
+        const execParams = [
+          "-i",
+          inputFilename,
+          ...metadataParams,
+          outputFilename,
+        ];
+        Logger.info(
+          "Executing FFmpeg command:",
+          `ffmpeg ${execParams.join(" ")}`
+        );
+        await ffmpeg.exec(execParams);
+        Logger.info("FFmpeg conversion complete.");
+
+        const convertedData = await ffmpeg.readFile(outputFilename);
+        Logger.log(
+          `Reading converted file from virtual FS. Size: ${convertedData.length}`
+        );
+        const blob = new Blob([convertedData], { type: `audio/${data.ext}` });
+        saveAs(blob, outputFilename);
+      } finally {
+        await this.updateDownloadText(`cleaning up...`);
+        try {
+          await ffmpeg.deleteFile(inputFilename);
+          await ffmpeg.deleteFile(outputFilename);
+          Logger.log("Cleaned up FFmpeg virtual files.");
+        } catch (e) {
+          Logger.warn(`Could not delete temp files`, e);
+        }
+      }
+    },
+
+    async ffmpegDownload(data) {
+      Logger.info("Starting FFmpeg download process.");
+      const ffmpeg = window.WP_ffmpeg;
+      const filesToDelete = [];
+      const remuxParams = {};
+
+      try {
+        Logger.info(
+          `Starting concurrent download of ${data.requestedFormats.length} streams.`
+        );
+
+        await this.updateDownloadText(`downloading streams...`);
+        const downloadPromises = data.requestedFormats.map(async (format) => {
+          Logger.log(`[Concurrent] Preparing to download format: ${format.type}`);
+          const fileBlob = await this._fetchFile(format);
+          const fileBuffer = await fileBlob.arrayBuffer();
+          const safeInputName = sanitizeFilename(
+            `${format.formatId}.${format.ext}`
+          );
+          filesToDelete.push(safeInputName);
+          Logger.log(
+            `[Concurrent] Writing ${format.type} data to virtual FS as "${safeInputName}"`
+          );
+
+          await ffmpeg.writeFile(safeInputName, new Uint8Array(fileBuffer));
+          remuxParams[`${format.type}Name`] = safeInputName;
+          Logger.log(
+            `[Concurrent] Finished writing "${safeInputName}" to virtual FS.`
+          );
+        });
+
+        await Promise.all(downloadPromises);
+        Logger.info(
+          "All streams have been downloaded and written to the virtual FS."
+        );
+
+        let metadataParams = data.metadata ? data.metadata.flat() : [];
+        await this.fetchAndEmbedLyrics(data, metadataParams);
+
+        await this.updateDownloadText("merging...");
+        const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
+        filesToDelete.push(outputFilename);
+        const execParams = [
+          "-i",
+          remuxParams.videoName,
+          "-i",
+          remuxParams.audioName,
+          ...metadataParams,
+          "-c:v",
+          "copy",
+          "-c:a",
+          "copy",
+          outputFilename,
+        ];
+        Logger.info(
+          "Executing FFmpeg command:",
+          `ffmpeg ${execParams.join(" ")}`
+        );
+        await ffmpeg.exec(execParams);
+        Logger.info("FFmpeg execution complete.");
+
+        const mergedData = await ffmpeg.readFile(outputFilename);
+        Logger.log(
+          `Reading merged file from virtual FS. Size: ${mergedData.length}`
+        );
+        const blob = new Blob([mergedData], { type: `video/${data.ext}` });
+        saveAs(blob, outputFilename);
+      } finally {
+        await this.updateDownloadText(`cleaning up...`);
+        Logger.log("Cleaning up FFmpeg virtual files:", filesToDelete);
+        for (const file of filesToDelete) {
+          try {
+            await ffmpeg.deleteFile(file);
+            Logger.log(`Deleted temp file: ${file}`);
+          } catch (e) {
+            Logger.warn(`Could not delete temp file: ${file}`, e);
+          }
+        }
+      }
+    },
+
+    async fetchChangelog() {
+      try {
+        const response = await fetch(`${this.API_BASE}/changelog`);
+        if (!response.ok) throw new Error("Network response was not ok");
+        this.changelogItems = await response.json();
+      } catch (error) {
+        Logger.error("Failed to fetch changelog:", error);
+        this.changelogItems = [];
+      }
+    },
+  };
+}
