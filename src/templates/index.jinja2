@@ -8,9 +8,8 @@
     <title>ytdlp frontend</title>
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles/global.css') }}" />
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles/modal.css') }}" />
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles/awm.css') }}" />
-    <script src="{{ url_for('static', filename='scripts/dist/webpack.js') }}"></script>
-    <script src="{{ url_for('static', filename='scripts/main.js') }}"></script>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles/notify.css') }}" />
+    <script type="module" src="{{ url_for('static', filename='scripts/main.js') }}"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
   </head>
 
@@ -195,6 +194,21 @@
                   </div>
                 </label>
               </div>
+              <!-- multi-thread toggle -->
+              <div class="toggle-modal-options">
+                <div class="toggle-modal-left">
+                  <div class="toggle-modal-title">Multi-threaded</div>
+                  <div class="toggle-modal-description">
+                    Uses a multi-threaded FFmpeg core for better performance. Requires browser support for SharedArrayBuffer. Disable if you experience issues.
+                  </div>
+                </div>
+                <label class="modal-toggle-button">
+                  <input id="use-multi-thread" type="checkbox" x-model="useMultiThread" />
+                  <div>
+                    <span></span>
+                  </div>
+                </label>
+              </div>
               <!-- lyrics fetch toggle -->
               <div class="toggle-modal-options">
                 <div class="toggle-modal-left">
@@ -271,6 +285,22 @@
       <button-component class="js-modal-close" @click="modals.about = false">
         close
       </button-component>
+    </div>
+
+    <!-- notification toasts -->
+    <div class="notify-container"
+         x-data
+         x-show="$store.notify.toasts.length > 0">
+      <template x-for="toast in $store.notify.toasts" :key="toast.id">
+        <div class="notify-toast"
+             :class="'notify-toast--' + toast.type"
+             x-show="toast.visible"
+             x-transition:enter="notify-enter"
+             x-transition:leave="notify-leave"
+             @click="$store.notify._dismiss(toast.id)"
+             x-text="toast.message">
+        </div>
+      </template>
     </div>
 
   </body>

@@ -1,0 +1,112 @@
+.notify-container {
+    position: fixed;
+    z-index: 99998;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+    max-width: 360px;
+}
+
+.notify-toast {
+    pointer-events: auto;
+    position: relative;
+    overflow: hidden;
+    padding: 14px 18px;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    cursor: pointer;
+    background: var(--color-surface);
+    color: var(--text-color);
+    border: 1px solid var(--color-outline-variant);
+    box-shadow: var(--elevation-2);
+    word-break: break-word;
+    transform: translateX(0);
+    opacity: 1;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+}
+
+.notify-toast.notify-enter {
+    transform: translateX(100%);
+    opacity: 0;
+}
+
+.notify-toast.notify-leave {
+    transform: translateX(100%);
+    opacity: 0;
+}
+
+/* type accents via left border */
+.notify-toast::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: 4px 0 0 4px;
+    background: var(--color-outline);
+}
+
+.notify-toast--success::before {
+    background: hsl(142, 55%, 44%);
+}
+
+.notify-toast--success {
+    border-color: hsl(142, 55%, 44%, 0.3);
+}
+
+.notify-toast--warning::before {
+    background: hsl(38, 92%, 50%);
+}
+
+.notify-toast--warning {
+    border-color: hsl(38, 92%, 50%, 0.3);
+}
+
+.notify-toast--alert::before {
+    background: hsl(4, 80%, 50%);
+}
+
+.notify-toast--alert {
+    border-color: hsl(4, 80%, 50%, 0.3);
+}
+
+.notify-toast--info::before {
+    background: var(--color-primary);
+}
+
+.notify-toast--info {
+    border-color: var(--color-primary);
+}
+
+.notify-toast--loading::before {
+    background: var(--color-primary);
+    animation: notify-pulse 1.5s ease-in-out infinite;
+}
+
+.notify-toast--loading {
+    border-color: var(--color-primary);
+}
+
+@keyframes notify-pulse {
+    0%, 100% {
+        opacity: 0.4;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+@media (max-width: 480px) {
+    .notify-container {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        max-width: none;
+    }
+}

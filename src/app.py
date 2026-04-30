@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from dotenv import find_dotenv, load_dotenv
-from flask import Flask
+from flask import Flask, Response
 
 from .extensions import RedisWrapper
 from .routes import register_all_routes
@@ -46,6 +46,15 @@ app.config["YTDL_OPTS"] = {
     "extractor_args": {"youtubepot-bgutilhttp": {"base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"}},
     "allowed_extractors": ["^([yY].*?)([tT]).*e?$"],
 }
+
+
+@app.after_request
+def set_cross_origin_headers(response: Response):
+    # required for SharedArrayBuffer used by multi-threaded FFmpeg WASM core
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+    return response
+
 
 register_all_routes(app)
 with app.app_context():
