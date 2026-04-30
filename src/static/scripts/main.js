@@ -1,3 +1,6 @@
+import { loadFFmpeg, getFFmpeg, isLoaded, fetchFile } from "./ffmpeg.js";
+import { registerNotifyStore } from "./notify.js";
+
 const Logger = {
   verbose: true,
   get log() {
@@ -80,6 +83,11 @@ function sanitizeFilename(name) {
   return sanitized;
 }
 
+// register notify store before alpine init
+document.addEventListener("alpine:init", () => {
+  registerNotifyStore(Alpine);
+});
+
 function ytdlApp() {
   return {
     // -- config ---------------------------------------------------------------
@@ -90,6 +98,7 @@ function ytdlApp() {
     url: "",
     downloadType: "video",
     useFfmpeg: false,
+    useMultiThread: false,
     ytdlFormatVideo: "",
     ytdlFormatAudio: "",
     ytdlFormatCustom: "",
@@ -101,6 +110,10 @@ function ytdlApp() {
     isError: false,
     noOpacity: false,
 
+    // ffmpeg state
+    ffmpegLoading: false,
+    ffmpegLoaded: false,
+
     // modal state
     modals: {
       settings: false,
@@ -111,9 +124,9 @@ function ytdlApp() {
     settingsTab: 0,
 
     // changelog
-    changelogItems: null, // null = loading, [] = empty, [...] = loaded
+    changelogItems: null,
 
-    // preset data (defined inline so the template can iterate)
+    // preset data
     videoPresets: [
       {
         title: "Auto (1080p + Audio)",
@@ -216,13 +229,11 @@ function ytdlApp() {
 
       this._loadState();
 
-      // default value
       if (!this.ytdlFormatVideo) this.ytdlFormatVideo = this.videoPresets[0].value;
       if (!this.ytdlFormatAudio) this.ytdlFormatAudio = this.audioPresets[0].value;
 
-      // auto save these states on change
       const watchKeys = [
-        "downloadType", "useFfmpeg",
+        "downloadType", "useFfmpeg", "useMultiThread",
         "ytdlFormatVideo", "ytdlFormatAudio", "ytdlFormatCustom",
         "fetchLyrics", "lyricsProvider",
       ];
@@ -237,6 +248,7 @@ function ytdlApp() {
     _saveState() {
       const settings = {
         useFfmpeg: this.useFfmpeg,
+        useMultiThread: this.useMultiThread,
         downloadType: this.downloadType,
         ytdlFormatVideo: this.ytdlFormatVideo,
         ytdlFormatAudio: this.ytdlFormatAudio,
@@ -254,6 +266,7 @@ function ytdlApp() {
       try {
         const s = JSON.parse(raw);
         if (s.useFfmpeg !== undefined) this.useFfmpeg = s.useFfmpeg;
+        if (s.useMultiThread !== undefined) this.useMultiThread = s.useMultiThread;
         if (s.downloadType) this.downloadType = s.downloadType;
         if (s.ytdlFormatVideo) this.ytdlFormatVideo = s.ytdlFormatVideo;
         if (s.ytdlFormatAudio) this.ytdlFormatAudio = s.ytdlFormatAudio;
@@ -263,6 +276,39 @@ function ytdlApp() {
         Logger.info("Settings loaded from localStorage.", s);
       } catch (e) {
         Logger.error("Failed to parse settings from localStorage.", e);
+      }
+    },
+
+    async _ensureFFmpeg() {
+      if (isLoaded()) return getFFmpeg();
+
+      this.ffmpegLoading = true;
+      const notify = Alpine.store("notify");
+
+      try {
+        Logger.info(`Loading FFmpeg (multiThread: ${this.useMultiThread})...`);
+        const ffmpeg = await notify.async(
+          loadFFmpeg({
+            multiThread: this.useMultiThread,
+            onProgress: ({ progress }) => {
+              if (this.isDownloading) {
+                const pct = Math.floor(progress * 100);
+                this.downloadText = `ffmpeg-ing... ${pct}%`;
+              }
+            },
+          }),
+          "FFmpeg loaded",
+          (err) => notify.alert(`FFmpeg failed to load: ${err.message}`),
+          "FFmpeg loading..."
+        );
+        this.ffmpegLoaded = true;
+        Logger.info("FFmpeg loaded successfully.");
+        return ffmpeg;
+      } catch (err) {
+        Logger.error("Failed to load FFmpeg:", err);
+        throw new Error("FFmpeg failed to load");
+      } finally {
+        this.ffmpegLoading = false;
       }
     },
 
@@ -329,17 +375,17 @@ function ytdlApp() {
       const data = await response.json();
       Logger.info("Received response from /check:", data);
       if (!response.ok) {
-        window.WP_notifier.warning(data.error);
+        Alpine.store("notify").warning(data.error);
         throw new Error(data.error);
       }
 
       if (data.needFFmpeg) {
         Logger.info("Path selected: FFmpeg remuxing.");
-        if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
+        await this._ensureFFmpeg();
         await this.ffmpegDownload(data);
       } else if (data.needsConversion) {
         Logger.info("Path selected: Audio conversion.");
-        if (!window.WP_ffmpeg?.loaded) throw new Error("FFmpeg not loaded");
+        await this._ensureFFmpeg();
         await this.convertAudio(data);
       } else {
         const sanitizedFilename = sanitizeFilename(`${data.title}.${data.ext}`);
@@ -459,7 +505,7 @@ function ytdlApp() {
 
     async convertAudio(data) {
       Logger.info("Starting audio conversion process.");
-      const ffmpeg = window.WP_ffmpeg;
+      const ffmpeg = getFFmpeg();
       const inputFilename = `input.${data.sourceExt}`;
       const outputFilename = sanitizeFilename(`${data.title}.${data.ext}`);
 
@@ -507,7 +553,7 @@ function ytdlApp() {
 
     async ffmpegDownload(data) {
       Logger.info("Starting FFmpeg download process.");
-      const ffmpeg = window.WP_ffmpeg;
+      const ffmpeg = getFFmpeg();
       const filesToDelete = [];
       const remuxParams = {};
 
@@ -598,3 +644,5 @@ function ytdlApp() {
     },
   };
 }
+
+window.ytdlApp = ytdlApp;
