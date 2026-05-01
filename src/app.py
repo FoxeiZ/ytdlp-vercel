@@ -45,6 +45,7 @@ app.config["YTDL_OPTS"] = {
     "source_address": "0.0.0.0",
     "extractor_args": {"youtubepot-bgutilhttp": {"base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"}},
     "allowed_extractors": ["^([yY].*?)([tT]).*e?$"],
+    "cookiefile": "ytdl_cookies",
 }
 
 
