@@ -19,12 +19,22 @@ app = Flask(
 )
 
 formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s")
-if not app.logger.handlers:
-    handler = logging.StreamHandler()
-    app.logger.addHandler(handler)
-for h in app.logger.handlers:
-    h.setFormatter(formatter)
-app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+
+root_logger = logging.getLogger()
+root_logger.handlers.clear()
+root_logger.addHandler(handler)
+root_logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
+
+app.logger.handlers.clear()
+app.logger.propagate = True
+app.logger.setLevel(root_logger.level)
+
+werkzeug_logger = logging.getLogger("werkzeug")
+werkzeug_logger.handlers.clear()
+werkzeug_logger.propagate = True
+werkzeug_logger.setLevel(root_logger.level)
 
 app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
 app.config["KV_REST_API_TOKEN"] = os.getenv("KV_REST_API_TOKEN", "")

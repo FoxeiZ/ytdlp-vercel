@@ -38,9 +38,9 @@ class YTDLRedisCookieJar(YoutubeDLCookieJar):
 
         if write:
             yield self._io
-            self.redis.set(file, self._io.getvalue())
         else:
             value = self.redis.get(file)
+            self._logger.warning("Loaded cookies from Redis: %s", value)
             if value is not None:
                 self._io = StringIO(value)
             else:
@@ -56,7 +56,9 @@ class YTDLRedisCookieJar(YoutubeDLCookieJar):
             return super().save(filename, ignore_discard, ignore_expires)
 
         self._logger.info("YoutubeDLCookieJar proxy save via Redis - %s", filename)
-        self.redis.set(self.KEY, self._io.getvalue())
+        value = self._io.getvalue()
+        self._logger.warning("Saving cookies to Redis: %s", value)
+        self.redis.set(self.KEY, value)
 
 
 def load_cookies_from_redis(redis: Redis) -> YTDLRedisCookieJar:
