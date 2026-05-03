@@ -15,6 +15,7 @@ PLATFORM_MAP: Final[dict[str, str]] = {
 
 ARCH_MAP: Final[dict[str, str]] = {
     "amd64": "x86_64",
+    "x86_64": "x86_64",
     "arm64": "aarch64",
 }
 
