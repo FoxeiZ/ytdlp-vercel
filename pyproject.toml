@@ -21,6 +21,9 @@ dev = [
     "ruff>=0.14.11",
 ]
 
+[tool.vercel.scripts]
+build = "python download-deno.py --version v2.7.14"
+
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
