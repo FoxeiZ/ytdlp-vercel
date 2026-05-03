@@ -7,6 +7,7 @@ from flask import Flask, Response
 
 from .extensions import RedisWrapper
 from .routes import register_all_routes
+from .utils.general import str_to_bool
 
 load_dotenv()
 load_dotenv(find_dotenv(".env.development.local"))
@@ -17,6 +18,7 @@ app = Flask(
     template_folder=Path(__file__).parent / "templates",
     static_folder=Path(__file__).parent / "static",
 )
+debug = app.debug or str_to_bool(os.getenv("DEBUG", "false"))
 
 formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s")
 handler = logging.StreamHandler()
@@ -25,7 +27,7 @@ handler.setFormatter(formatter)
 root_logger = logging.getLogger()
 root_logger.handlers.clear()
 root_logger.addHandler(handler)
-root_logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
+root_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
 
 app.logger.handlers.clear()
 app.logger.propagate = True
@@ -67,6 +69,6 @@ def set_cross_origin_headers(response: Response):
     return response
 
 
-register_all_routes(app)
+register_all_routes(app, debug=debug)
 with app.app_context():
     RedisWrapper.from_app(app)
