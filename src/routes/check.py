@@ -2,16 +2,11 @@ import importlib.metadata
 
 import yt_dlp.version
 import yt_dlp_ejs._version
-from dotenv import find_dotenv, load_dotenv
 from flask import Blueprint, Flask, current_app
 
 from ..customs.ytdlp import YTDLP
 
 bp = Blueprint("check", __name__)
-
-
-load_dotenv()
-load_dotenv(find_dotenv(".env.local"))
 
 
 @bp.route("/")
