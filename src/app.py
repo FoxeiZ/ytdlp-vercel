@@ -59,7 +59,7 @@ app.config["YTDL_OPTS"] = {
     "extractor_args": {"youtubepot-bgutilhttp": {"base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"}},
     "allowed_extractors": ["^([yY].*?)([tT]).*e?$"],
     "cookiefile": "ytdl_cookies",
-    "js_runtimes": {"node": {}, "deno": {}, "bun": {}},
+    "js_runtimes": {"node": {}, "deno": {"path": "./deno_bins/deno"}, "bun": {}},
 }
 
 

@@ -7,5 +7,6 @@
       "dest": "api/app.py"
     }
   ],
+  "installCommand": "python download-deno.py",
   "trailingSlash": false
 }
