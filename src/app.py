@@ -49,7 +49,8 @@ app.config["YTDL_OPTS"] = {
     "nocheckcertificate": True,
     "ignoreerrors": False,
     "logtostderr": False,
-    "quiet": True,
+    "quiet": not debug,
+    "verbose": debug,
     "noplaylist": True,
     "no_warnings": True,
     "socket_timeout": 15,
@@ -58,6 +59,7 @@ app.config["YTDL_OPTS"] = {
     "extractor_args": {"youtubepot-bgutilhttp": {"base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"}},
     "allowed_extractors": ["^([yY].*?)([tT]).*e?$"],
     "cookiefile": "ytdl_cookies",
+    "js_runtimes": {"node": {}, "deno": {}, "bun": {}},
 }
 
 
