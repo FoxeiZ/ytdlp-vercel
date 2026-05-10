@@ -129,7 +129,7 @@ def render_listing(root: Path, target: Path, requested: str, absolute: bool) -> 
     """
 
 
-@bp.route("/files/", methods=["GET"])
+@bp.route("/files", methods=["GET"])
 def files_index() -> Response:
     root = get_fs_root()
     cwd = get_cwd_root()
