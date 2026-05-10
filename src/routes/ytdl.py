@@ -5,23 +5,21 @@ import json
 import logging
 import re
 import uuid
-from io import StringIO
 from typing import TYPE_CHECKING, Any, cast
 
 import requests
 from flask import Blueprint, Flask, Response, current_app, jsonify, render_template, request, stream_with_context
 from upstash_redis.errors import UpstashError
-from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor.metadataparser import MetadataParserPP
 from yt_dlp.utils import DownloadError, ISO639Utils, variadic
 
 from src.extensions import RedisWrapper
 from src.utils.general import str_to_bool
 
+from ..customs.ytdlp import YTDLP
+
 if TYPE_CHECKING:
     from collections.abc import Generator, Mapping, Sequence
-
-    from upstash_redis import Redis
 
 
 logger = logging.getLogger(__name__)
@@ -39,36 +37,11 @@ URL_CACHE_TTL_SECONDS = 1800
 CHANGELOG_CACHE_TTL_SECONDS = 3600
 
 
-class CookiesIOWrapper(StringIO):
-    def __init__(self, redis_client: Redis | None, key: str = "ytdl_cookies"):
-        self.redis_client = redis_client
-        self.key = key
-        initial_value = ""
-        if self.redis_client:
-            try:
-                cookies_result = self.redis_client.get(self.key)
-                if cookies_result:
-                    initial_value = cookies_result
-                    current_app.logger.info("Successfully loaded cookies from Redis.")
-            except UpstashError as e:
-                current_app.logger.error(f"Redis GET error: {e}. Proceeding without persistent cookies.")
-        super().__init__(initial_value)
-
-    def close(self):
-        if self.redis_client:
-            try:
-                self.redis_client.set(self.key, self.getvalue())
-                current_app.logger.info("Successfully saved cookies to Redis.")
-            except UpstashError as e:
-                current_app.logger.error(f"Redis SET error: {e}. Cookies may not have been saved.")
-        super().close()
-
-
 def create_ytdl_extractor(
     provider: str = "youtube",
     search_amount: int = 5,
     extra_opts: Mapping[str, Any] | None = None,
-) -> YoutubeDL:
+) -> YTDLP:
     base_opts = current_app.config["YTDL_OPTS"].copy()
     config = {**base_opts, **(extra_opts or {})}
     search_prefixes = {
@@ -78,9 +51,7 @@ def create_ytdl_extractor(
     config["default_search"] = search_prefixes.get(provider, f"ytsearch{search_amount}")
     if provider == "ytmusic":
         config["playlist_items"] = f"1-{search_amount}"
-    cookies_io = CookiesIOWrapper(RedisWrapper.get_client())
-    config["cookiefile"] = cookies_io
-    return YoutubeDL(config)  # pyright: ignore[reportArgumentType]
+    return YTDLP(config)
 
 
 def create_error_response(message: str, code: int = 500, exc: Exception | None = None) -> tuple[Response, int]:
@@ -336,6 +307,8 @@ def check():
             return create_error_response("yt-dlp failed to extract info (returned None).", 500)
     except DownloadError as e:
         return create_error_response(f"Extraction failed: {e}", 500, exc=e)
+    finally:
+        extractor.close()
 
     metadata_opts = list(get_metadata_opts(info))
 

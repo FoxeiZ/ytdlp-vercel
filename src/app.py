@@ -7,6 +7,7 @@ from flask import Flask, Response
 
 from .extensions import RedisWrapper
 from .routes import register_all_routes
+from .utils.general import str_to_bool
 
 load_dotenv()
 load_dotenv(find_dotenv(".env.development.local"))
@@ -17,14 +18,25 @@ app = Flask(
     template_folder=Path(__file__).parent / "templates",
     static_folder=Path(__file__).parent / "static",
 )
+debug = app.debug or str_to_bool(os.getenv("DEBUG", "false"))
 
 formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] in %(module)s: %(message)s")
-if not app.logger.handlers:
-    handler = logging.StreamHandler()
-    app.logger.addHandler(handler)
-for h in app.logger.handlers:
-    h.setFormatter(formatter)
-app.logger.setLevel(logging.INFO if not app.debug else logging.DEBUG)
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+
+root_logger = logging.getLogger()
+root_logger.handlers.clear()
+root_logger.addHandler(handler)
+root_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
+
+app.logger.handlers.clear()
+app.logger.propagate = True
+app.logger.setLevel(root_logger.level)
+
+werkzeug_logger = logging.getLogger("werkzeug")
+werkzeug_logger.handlers.clear()
+werkzeug_logger.propagate = True
+werkzeug_logger.setLevel(root_logger.level)
 
 app.config["KV_REST_API_URL"] = os.getenv("KV_REST_API_URL", "")
 app.config["KV_REST_API_TOKEN"] = os.getenv("KV_REST_API_TOKEN", "")
@@ -37,7 +49,8 @@ app.config["YTDL_OPTS"] = {
     "nocheckcertificate": True,
     "ignoreerrors": False,
     "logtostderr": False,
-    "quiet": True,
+    "quiet": not debug,
+    "verbose": debug,
     "noplaylist": True,
     "no_warnings": True,
     "socket_timeout": 15,
@@ -45,6 +58,8 @@ app.config["YTDL_OPTS"] = {
     "source_address": "0.0.0.0",
     "extractor_args": {"youtubepot-bgutilhttp": {"base_url": "https://bgutil-ytdlp-pot-vercal.vercel.app"}},
     "allowed_extractors": ["^([yY].*?)([tT]).*e?$"],
+    "cookiefile": "ytdl_cookies",
+    "js_runtimes": {"node": {}, "deno": {"path": "./deno_bins/deno"}, "bun": {}},
 }
 
 
@@ -56,6 +71,6 @@ def set_cross_origin_headers(response: Response):
     return response
 
 
-register_all_routes(app)
+register_all_routes(app, debug=debug)
 with app.app_context():
     RedisWrapper.from_app(app)

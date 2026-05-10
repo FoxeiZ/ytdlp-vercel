@@ -164,3 +164,4 @@ node_modules/
 # ignore dump file
 *dump*
 .env*.local
+deno_bins/

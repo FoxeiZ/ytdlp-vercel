@@ -11,6 +11,7 @@ dependencies = [
     "requests==2.33.1",
     "upstash-redis==1.7.0",
     "yt-dlp>=2026.3.17",
+    "yt-dlp-ejs>=0.8.0",
 ]
 
 [dependency-groups]
@@ -19,6 +20,9 @@ dev = [
     "pyright>=1.1.408",
     "ruff>=0.14.11",
 ]
+
+[tool.vercel.scripts]
+build = "python download-deno.py --version v2.7.14"
 
 [tool.pyright]
 pythonVersion = "3.12"

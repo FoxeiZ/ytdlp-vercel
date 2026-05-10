@@ -1,14 +1,9 @@
 import logging
 
-from dotenv import find_dotenv, load_dotenv
 from flask import Blueprint, Flask, current_app, render_template, request
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("index", __name__)
-
-
-load_dotenv()
-load_dotenv(find_dotenv(".env.local"))
 
 
 @bp.before_request
