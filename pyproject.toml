@@ -10,7 +10,7 @@ dependencies = [
     "python-dotenv==1.2.2",
     "requests==2.33.1",
     "upstash-redis==1.7.0",
-    "yt-dlp>=2026.3.17",
+    "yt-dlp>=2026.6.9",
 ]
 
 [dependency-groups]
